@@ -91,25 +91,31 @@ def get_data_akshare_v1(symbol: str, start_date: str) -> pd.DataFrame:
 
 
 def get_data_akshare_v2(symbol: str, start_date: str) -> pd.DataFrame:
-    """AKShare 数据源 v2: stock_zh_a_hist_em"""
+    """AKShare 数据源 v2: 使用 stock_zh_a_hist_tx (腾讯数据源)"""
     import akshare as ak
-    print(f"[2/3] Trying AKShare stock_zh_a_hist_em...")
+    from datetime import datetime
+
+    print(f"[2/3] Trying AKShare stock_zh_a_hist_tx...")
+    # stock_zh_a_hist_tx 需要带市场前缀的股票代码
+    symbol_tx = f"sz{symbol}" if symbol.startswith('0') or symbol.startswith('3') else f"sh{symbol}"
+
     max_retries = 2
     for attempt in range(max_retries):
         try:
-            df = ak.stock_zh_a_hist_em(
-                symbol=symbol,
-                period="daily",
-                start_date=start_date,
+            df = ak.stock_zh_a_hist_tx(
+                symbol=symbol_tx,
+                start_date=f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}",
+                end_date=datetime.now().strftime("%Y-%m-%d"),
                 adjust="qfq"
             )
-            df = df[["日期", "开盘", "最高", "最低", "收盘", "成交量"]].copy()
+            # 腾讯数据源返回的列名不同，需要转换
+            df = df[["date", "open", "high", "low", "close", "amount"]].copy()
             df.columns = ["date", "open", "high", "low", "close", "volume"]
             df["date"] = df["date"].astype(str)
-            print(f"AKShare v2 success! {len(df)} rows")
+            print(f"AKShare v2 (tx) success! {len(df)} rows")
             return df
         except Exception as e:
-            print(f"v2 attempt {attempt + 1} failed: {type(e).__name__}")
+            print(f"v2 attempt {attempt + 1} failed: {type(e).__name__}: {e}")
             if attempt < max_retries - 1:
                 time.sleep(5)
     raise Exception("AKShare v2 unavailable")
@@ -184,8 +190,8 @@ def get_stock_data(
 
     # 2. 尝试各数据源
     sources = [
-        ("AKShare v1", lambda: get_data_akshare_v1(symbol, start_date)),
-        ("AKShare v2", lambda: get_data_akshare_v2(symbol, start_date)),
+        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date)),
+        ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, start_date)),
         ("BaoStock", lambda: get_data_baostock(symbol, start_date)),
     ]
 
