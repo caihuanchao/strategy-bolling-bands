@@ -68,7 +68,7 @@ def get_sample_data(symbol: str = "000333", days: int = 120) -> pd.DataFrame:
 def get_data_akshare_v1(symbol: str, start_date: str) -> pd.DataFrame:
     """AKShare 数据源 v1: stock_zh_a_hist"""
     import akshare as ak
-    print(f"[1/3] Trying AKShare stock_zh_a_hist...")
+    print(f"[2/3] Trying AKShare stock_zh_a_hist...")
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -95,7 +95,7 @@ def get_data_akshare_v2(symbol: str, start_date: str) -> pd.DataFrame:
     import akshare as ak
     from datetime import datetime
 
-    print(f"[2/3] Trying AKShare stock_zh_a_hist_tx...")
+    print(f"[1/3] Trying AKShare stock_zh_a_hist_tx...")
     # stock_zh_a_hist_tx 需要带市场前缀的股票代码
     symbol_tx = f"sz{symbol}" if symbol.startswith('0') or symbol.startswith('3') else f"sh{symbol}"
 
@@ -188,14 +188,14 @@ def get_stock_data(
         if cached is not None:
             return cached
 
-    # 2. 尝试各数据源
+    # 2. 尝试各数据源（优先使用 AKShare v2）
     sources = [
-        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date)),
         ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, start_date)),
+        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date)),
         ("BaoStock", lambda: get_data_baostock(symbol, start_date)),
     ]
 
-    for name, func in sources:
+    for source_name, func in sources:
         try:
             df = func()
             save_to_cache(df, symbol, period, start_date)
