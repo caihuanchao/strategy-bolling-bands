@@ -202,3 +202,68 @@ def get_stock_data(
     df = get_sample_data(symbol)
     save_to_cache(df, symbol, period, start_date)
     return df
+
+
+from typing import List, Dict, Tuple
+from .watchlist import StockInfo
+
+
+def fetch_batch_data(
+    stocks: List[StockInfo],
+    period: Optional[str] = None,
+    start_date: Optional[str] = None,
+    use_cache: bool = True,
+    request_interval: float = 0.3,
+    show_progress: bool = True
+) -> Tuple[Dict[str, pd.DataFrame], List[str]]:
+    """
+    批量获取多只股票数据
+
+    Args:
+        stocks: StockInfo 列表
+        period: 周期
+        start_date: 开始日期
+        use_cache: 是否使用缓存
+        request_interval: 请求间隔（秒），防限流
+        show_progress: 是否显示进度
+
+    Returns:
+        (成功数据字典 {symbol: df}, 失败股票列表)
+    """
+    config = get_config()
+    period = period or config.period
+    start_date = start_date or config.start_date
+
+    data_dict = {}
+    failed_symbols = []
+    total = len(stocks)
+
+    for i, stock in enumerate(stocks, 1):
+        symbol = stock.symbol
+        if show_progress:
+            print(f"\n[{i}/{total}] Processing {symbol} - {stock.name}")
+
+        try:
+            df = get_stock_data(
+                symbol=symbol,
+                period=period,
+                start_date=start_date,
+                use_cache=use_cache
+            )
+            data_dict[symbol] = df
+        except Exception as e:
+            print(f"⚠️  Failed to fetch {symbol}: {type(e).__name__}")
+            failed_symbols.append(symbol)
+
+        # 最后一只股票不需要等
+        if i < total and request_interval > 0:
+            time.sleep(request_interval)
+
+    # 总结
+    print(f"\n{'='*60}")
+    print(f"Batch fetch complete: {len(data_dict)}/{total} succeeded")
+    if failed_symbols:
+        print(f"Failed ({len(failed_symbols)}): {', '.join(failed_symbols)}")
+    print(f"{'='*60}")
+
+    return data_dict, failed_symbols

@@ -17,6 +17,10 @@ class Config:
     period: str = "daily"
     cache_dir: str = "data"
 
+    # 缓存配置
+    cache_base_dir: str = "data/cache"
+    cache_bollinger_dir: str = "data/cache/bollinger"
+
     # 布林带参数
     bollinger_n: int = 20
     bollinger_m: float = 2.0
@@ -43,3 +47,5 @@ def ensure_dirs():
     config = get_config()
     os.makedirs(config.cache_dir, exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
+    os.makedirs(config.cache_base_dir, exist_ok=True)
+    os.makedirs(config.cache_bollinger_dir, exist_ok=True)
