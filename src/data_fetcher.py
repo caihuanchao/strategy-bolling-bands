@@ -41,18 +41,41 @@ def save_to_cache(df: pd.DataFrame, symbol: str, period: str, start_date: str):
         print(f"Cache save failed: {e}")
 
 
-def get_sample_data(symbol: str = "000333", days: int = 120) -> pd.DataFrame:
+def get_sample_data(symbol: str = "000333", days: int = 120, period: str = "daily") -> pd.DataFrame:
     """生成样本数据（当所有在线源不可用时使用）"""
-    print(f"Using local sample data for {symbol}")
+    print(f"Using local sample data for {symbol} ({period})")
     np.random.seed(42)
     base_price = 60.0
-    dates = [(datetime(2025, 1, 1) + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
-    returns = np.random.normal(0.001, 0.02, days)
+
+    # 根据周期确定时间间隔
+    if period in ["1h", "60", "60m"]:
+        hours = days * 6  # 每天6小时交易时间
+        delta = timedelta(hours=1)
+        start_dt = datetime(2025, 1, 1, 9, 30)  # 9:30 开盘
+    elif period in ["4h", "240", "240m"]:
+        hours = days * 2  # 每天2个4小时K线
+        delta = timedelta(hours=4)
+        start_dt = datetime(2025, 1, 1, 9, 30)
+    else:
+        # 日线
+        delta = timedelta(days=1)
+        start_dt = datetime(2025, 1, 1)
+        hours = days
+
+    # 生成时间序列
+    dates = []
+    current_dt = start_dt
+    for _ in range(hours):
+        dates.append(current_dt.strftime("%Y-%m-%d %H:%M:%S" if "h" in period or "m" in period else "%Y-%m-%d"))
+        current_dt += delta
+        # 简单处理：跳过非交易时间（周末等），样本数据不做复杂处理
+
+    returns = np.random.normal(0.001, 0.02, hours)
     prices = base_price * np.cumprod(1 + returns)
-    high = prices * (1 + np.random.uniform(0, 0.015, days))
-    low = prices * (1 - np.random.uniform(0, 0.015, days))
+    high = prices * (1 + np.random.uniform(0, 0.015, hours))
+    low = prices * (1 - np.random.uniform(0, 0.015, hours))
     open_prices = np.concatenate([[base_price], prices[:-1]])
-    volume = np.random.randint(1000000, 5000000, days)
+    volume = np.random.randint(1000000, 5000000, hours)
 
     df = pd.DataFrame({
         "date": dates,
@@ -65,16 +88,24 @@ def get_sample_data(symbol: str = "000333", days: int = 120) -> pd.DataFrame:
     return df
 
 
-def get_data_akshare_v1(symbol: str, start_date: str) -> pd.DataFrame:
+def get_data_akshare_v1(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
     """AKShare 数据源 v1: stock_zh_a_hist"""
     import akshare as ak
-    print(f"[2/3] Trying AKShare stock_zh_a_hist...")
+    print(f"[2/3] Trying AKShare stock_zh_a_hist ({period})...")
+
+    # 转换 period 参数为 AKShare 格式
+    ak_period = "daily"
+    if period in ["1h", "60", "60m"]:
+        ak_period = "60"
+    elif period in ["4h", "240", "240m"]:
+        ak_period = "240"
+
     max_retries = 2
     for attempt in range(max_retries):
         try:
             df = ak.stock_zh_a_hist(
                 symbol=symbol,
-                period="daily",
+                period=ak_period,
                 start_date=start_date,
                 adjust="qfq"
             )
@@ -90,12 +121,18 @@ def get_data_akshare_v1(symbol: str, start_date: str) -> pd.DataFrame:
     raise Exception("AKShare v1 unavailable")
 
 
-def get_data_akshare_v2(symbol: str, start_date: str) -> pd.DataFrame:
+def get_data_akshare_v2(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
     """AKShare 数据源 v2: 使用 stock_zh_a_hist_tx (腾讯数据源)"""
     import akshare as ak
     from datetime import datetime
 
-    print(f"[1/3] Trying AKShare stock_zh_a_hist_tx...")
+    print(f"[1/3] Trying AKShare stock_zh_a_hist_tx ({period})...")
+
+    # 腾讯数据源可能不支持小时级，降级到日线
+    if period not in ["daily", "d", "day"]:
+        print(f"  AKShare v2 doesn't support {period}, falling back to daily-only")
+        raise Exception("AKShare v2 only supports daily")
+
     # stock_zh_a_hist_tx 需要带市场前缀的股票代码
     symbol_tx = f"sz{symbol}" if symbol.startswith('0') or symbol.startswith('3') else f"sh{symbol}"
 
@@ -121,11 +158,21 @@ def get_data_akshare_v2(symbol: str, start_date: str) -> pd.DataFrame:
     raise Exception("AKShare v2 unavailable")
 
 
-def get_data_baostock(symbol: str, start_date: str) -> pd.DataFrame:
+def get_data_baostock(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
     """BaoStock 数据源"""
     try:
         import baostock as bs
-        print(f"Trying BaoStock for {symbol}...")
+        print(f"Trying BaoStock for {symbol} ({period})...")
+
+        # 转换 period 参数
+        bs_freq = "d"  # 默认日线
+        if period in ["1h", "60", "60m"]:
+            bs_freq = "60"
+        elif period in ["4h", "240", "240m"]:
+            # BaoStock 没有4小时线，尝试用1小时后聚合，或者返回日线
+            print(f"  BaoStock doesn't support 4h directly, will use 1h")
+            bs_freq = "60"
+
         lg = bs.login()
         if lg.error_code != '0':
             raise Exception(f"BaoStock login failed")
@@ -133,9 +180,9 @@ def get_data_baostock(symbol: str, start_date: str) -> pd.DataFrame:
         symbol_bs = f"sz.{symbol}" if symbol.startswith('0') else f"sh.{symbol}"
         rs = bs.query_history_k_data_plus(
             symbol_bs,
-            "date,open,high,low,close,volume",
+            "date,time,open,high,low,close,volume",
             start_date=start_date[:4] + "-" + start_date[4:6] + "-" + start_date[6:],
-            frequency="d",
+            frequency=bs_freq,
             adjustflag="2"
         )
         data_list = []
@@ -147,6 +194,12 @@ def get_data_baostock(symbol: str, start_date: str) -> pd.DataFrame:
             raise Exception("BaoStock no data")
 
         df = pd.DataFrame(data_list, columns=rs.fields)
+
+        # 处理日期列
+        if "time" in df.columns and bs_freq != "d":
+            df["date"] = df["time"]  # 小时级用 time 列
+            df = df.drop("time", axis=1)
+
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = pd.to_numeric(df[col])
 
@@ -190,9 +243,9 @@ def get_stock_data(
 
     # 2. 尝试各数据源（优先使用 AKShare v2）
     sources = [
-        ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, start_date)),
-        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date)),
-        ("BaoStock", lambda: get_data_baostock(symbol, start_date)),
+        ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, start_date, period)),
+        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date, period)),
+        ("BaoStock", lambda: get_data_baostock(symbol, start_date, period)),
     ]
 
     for source_name, func in sources:
@@ -205,7 +258,7 @@ def get_stock_data(
 
     # 3. 所有源失败，使用样本数据
     print("All online sources unavailable, using local sample data")
-    df = get_sample_data(symbol)
+    df = get_sample_data(symbol, period=period)
     save_to_cache(df, symbol, period, start_date)
     return df
 
