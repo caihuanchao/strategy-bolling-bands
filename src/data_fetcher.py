@@ -2,6 +2,7 @@
 
 import os
 import time
+import re
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -10,68 +11,273 @@ from typing import Optional
 from .config import get_config, ensure_dirs
 
 
-def get_cache_path(symbol: str, period: str, start_date: str) -> str:
-    """获取缓存文件路径"""
+def clean_filename_name(name: str) -> str:
+    """
+    清理股票名称用于文件名，替换特殊字符为下划线
+
+    Args:
+        name: 原始股票名称，如"*ST平安"、"美的集团"
+
+    Returns:
+        清理后的名称，如"_ST平安"、"美的集团"
+    """
+    # 替换特殊字符为下划线：空格、*、(、)、[、]、-、.、/、\
+    return re.sub(r'[^\w一-鿿]', '_', name)
+
+
+def get_cache_path(symbol: str, period: str, start_date: str, name: Optional[str] = None) -> str:
+    """
+    获取缓存文件路径
+
+    Args:
+        symbol: 股票代码
+        period: 周期
+        start_date: 开始日期
+        name: 股票名称（可选），如果提供则使用新格式
+
+    Returns:
+        缓存文件路径
+    """
     config = get_config()
-    filename = f"{symbol}_{period}_{start_date}.csv"
+    if name:
+        clean_name = clean_filename_name(name)
+        filename = f"{clean_name}_{symbol}_{period}_{start_date}.csv"
+    else:
+        filename = f"{symbol}_{period}_{start_date}.csv"
     return os.path.join(config.cache_dir, filename)
 
 
-def get_cache_metadata_path(symbol: str, period: str, start_date: str) -> str:
-    """获取缓存元数据文件路径"""
+def get_cache_metadata_path(symbol: str, period: str, start_date: str, name: Optional[str] = None) -> str:
+    """
+    获取缓存元数据文件路径
+
+    Args:
+        symbol: 股票代码
+        period: 周期
+        start_date: 开始日期
+        name: 股票名称（可选），如果提供则使用新格式
+
+    Returns:
+        元数据文件路径
+    """
     config = get_config()
-    filename = f"{symbol}_{period}_{start_date}.meta.json"
+    if name:
+        clean_name = clean_filename_name(name)
+        filename = f"{clean_name}_{symbol}_{period}_{start_date}.meta.json"
+    else:
+        filename = f"{symbol}_{period}_{start_date}.meta.json"
     return os.path.join(config.cache_dir, filename)
 
 
-def load_from_cache(symbol: str, period: str, start_date: str) -> Optional[pd.DataFrame]:
-    """从本地缓存加载数据"""
-    cache_path = get_cache_path(symbol, period, start_date)
-    if os.path.exists(cache_path):
+def migrate_data_cache():
+    """
+    迁移旧格式缓存文件到新格式（包含名称）
+
+    只会在有 config.symbol_name 的情况下迁移默认标的，
+    其他标的需要通过 get_stock_data 传入 name 时自动迁移。
+    """
+    config = get_config()
+    cache_dir = config.cache_dir
+
+    if not os.path.exists(cache_dir):
+        return
+
+    migrated_count = 0
+
+    # 先尝试迁移默认标的
+    if config.symbol_name:
+        default_name = config.symbol_name
+        default_symbol = config.symbol
+
+        for filename in os.listdir(cache_dir):
+            # 匹配旧格式：{symbol}_{period}_{start_date}.csv 或 .meta.json
+            if filename.startswith(f"{default_symbol}_"):
+                old_path = os.path.join(cache_dir, filename)
+
+                if filename.endswith(".csv"):
+                    # 解析旧文件名
+                    parts = filename[:-4].split("_")
+                    if len(parts) >= 3:
+                        symbol_part = parts[0]
+                        period_part = parts[1]
+                        start_date_part = "_".join(parts[2:])  # 处理 start_date 可能包含下划线的情况（虽然不应该）
+
+                        # 检查是否已经有新文件
+                        new_path = get_cache_path(symbol_part, period_part, start_date_part, default_name)
+                        if not os.path.exists(new_path):
+                            try:
+                                os.rename(old_path, new_path)
+                                migrated_count += 1
+                                print(f"已迁移: {filename} -> {os.path.basename(new_path)}")
+                            except Exception as e:
+                                print(f"迁移失败 {filename}: {e}")
+
+                elif filename.endswith(".meta.json"):
+                    # 解析旧文件名
+                    base_name = filename[:-10]  # 去掉 .meta.json
+                    parts = base_name.split("_")
+                    if len(parts) >= 3:
+                        symbol_part = parts[0]
+                        period_part = parts[1]
+                        start_date_part = "_".join(parts[2:])
+
+                        new_path = get_cache_metadata_path(symbol_part, period_part, start_date_part, default_name)
+                        if not os.path.exists(new_path):
+                            try:
+                                os.rename(old_path, new_path)
+                                migrated_count += 1
+                                print(f"已迁移: {filename} -> {os.path.basename(new_path)}")
+                            except Exception as e:
+                                print(f"迁移失败 {filename}: {e}")
+
+    if migrated_count > 0:
+        print(f"数据缓存迁移完成，共迁移 {migrated_count} 个文件")
+
+
+def load_from_cache(symbol: str, period: str, start_date: str, name: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """
+    从本地缓存加载数据
+
+    优先尝试新格式（有 name），如果不存在且提供了 name，则尝试迁移旧文件；
+    如果没有 name 或迁移失败，则尝试旧格式。
+    """
+    # 先尝试新格式
+    if name:
+        cache_path_new = get_cache_path(symbol, period, start_date, name)
+        if os.path.exists(cache_path_new):
+            try:
+                df = pd.read_csv(cache_path_new)
+                print(f"Loaded from cache: {cache_path_new} ({len(df)} rows)")
+                return df
+            except Exception as e:
+                print(f"Cache load failed (new format): {e}")
+
+        # 尝试自动迁移旧文件
+        cache_path_old = get_cache_path(symbol, period, start_date)
+        if os.path.exists(cache_path_old):
+            try:
+                os.rename(cache_path_old, cache_path_new)
+                print(f"自动迁移缓存: {os.path.basename(cache_path_old)} -> {os.path.basename(cache_path_new)}")
+                df = pd.read_csv(cache_path_new)
+                print(f"Loaded from cache: {cache_path_new} ({len(df)} rows)")
+                return df
+            except Exception as e:
+                print(f"迁移失败，尝试加载旧格式: {e}")
+
+    # 尝试旧格式
+    cache_path_old = get_cache_path(symbol, period, start_date)
+    if os.path.exists(cache_path_old):
         try:
-            df = pd.read_csv(cache_path)
-            print(f"Loaded from cache: {cache_path} ({len(df)} rows)")
+            df = pd.read_csv(cache_path_old)
+            print(f"Loaded from cache: {cache_path_old} ({len(df)} rows)")
             return df
         except Exception as e:
             print(f"Cache load failed: {e}")
     return None
 
 
-def save_to_cache(df: pd.DataFrame, symbol: str, period: str, start_date: str):
+def save_to_cache(df: pd.DataFrame, symbol: str, period: str, start_date: str, name: Optional[str] = None):
     """保存数据到本地缓存"""
     ensure_dirs()
-    cache_path = get_cache_path(symbol, period, start_date)
-    try:
-        df.to_csv(cache_path, index=False)
-        print(f"Data cached to: {cache_path}")
-    except Exception as e:
-        print(f"Cache save failed: {e}")
+    # 如果有 name，保存新格式后删除旧格式
+    if name:
+        cache_path_new = get_cache_path(symbol, period, start_date, name)
+        cache_path_old = get_cache_path(symbol, period, start_date)
+        try:
+            df.to_csv(cache_path_new, index=False)
+            print(f"Data cached to: {cache_path_new}")
+            # 删除旧文件（如果存在）
+            if os.path.exists(cache_path_old):
+                try:
+                    os.remove(cache_path_old)
+                    print(f"已删除旧缓存: {os.path.basename(cache_path_old)}")
+                except Exception as e:
+                    print(f"删除旧缓存失败: {e}")
+        except Exception as e:
+            print(f"Cache save failed (new format): {e}")
+    else:
+        # 没有 name，只能用旧格式
+        cache_path = get_cache_path(symbol, period, start_date)
+        try:
+            df.to_csv(cache_path, index=False)
+            print(f"Data cached to: {cache_path}")
+        except Exception as e:
+            print(f"Cache save failed: {e}")
 
 
-def load_cache_metadata(symbol: str, period: str, start_date: str) -> Optional[dict]:
-    """加载缓存元数据"""
-    meta_path = get_cache_metadata_path(symbol, period, start_date)
-    if os.path.exists(meta_path):
+def load_cache_metadata(symbol: str, period: str, start_date: str, name: Optional[str] = None) -> Optional[dict]:
+    """
+    加载缓存元数据
+
+    优先尝试新格式（有 name），如果不存在且提供了 name，则尝试迁移旧文件；
+    如果没有 name 或迁移失败，则尝试旧格式。
+    """
+    # 先尝试新格式
+    if name:
+        meta_path_new = get_cache_metadata_path(symbol, period, start_date, name)
+        if os.path.exists(meta_path_new):
+            try:
+                import json
+                with open(meta_path_new, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Metadata load failed (new format): {e}")
+
+        # 尝试自动迁移旧文件
+        meta_path_old = get_cache_metadata_path(symbol, period, start_date)
+        if os.path.exists(meta_path_old):
+            try:
+                os.rename(meta_path_old, meta_path_new)
+                print(f"自动迁移元数据: {os.path.basename(meta_path_old)} -> {os.path.basename(meta_path_new)}")
+                import json
+                with open(meta_path_new, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"迁移元数据失败，尝试加载旧格式: {e}")
+
+    # 尝试旧格式
+    meta_path_old = get_cache_metadata_path(symbol, period, start_date)
+    if os.path.exists(meta_path_old):
         try:
             import json
-            with open(meta_path, 'r', encoding='utf-8') as f:
+            with open(meta_path_old, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
             print(f"Metadata load failed: {e}")
     return None
 
 
-def save_cache_metadata(metadata: dict, symbol: str, period: str, start_date: str):
+def save_cache_metadata(metadata: dict, symbol: str, period: str, start_date: str, name: Optional[str] = None):
     """保存缓存元数据"""
     ensure_dirs()
-    meta_path = get_cache_metadata_path(symbol, period, start_date)
-    try:
-        import json
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2, default=str)
-        print(f"Metadata saved to: {meta_path}")
-    except Exception as e:
-        print(f"Metadata save failed: {e}")
+    # 如果有 name，保存新格式后删除旧格式
+    if name:
+        meta_path_new = get_cache_metadata_path(symbol, period, start_date, name)
+        meta_path_old = get_cache_metadata_path(symbol, period, start_date)
+        try:
+            import json
+            with open(meta_path_new, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2, default=str)
+            print(f"Metadata saved to: {meta_path_new}")
+            # 删除旧文件（如果存在）
+            if os.path.exists(meta_path_old):
+                try:
+                    os.remove(meta_path_old)
+                    print(f"已删除旧元数据: {os.path.basename(meta_path_old)}")
+                except Exception as e:
+                    print(f"删除旧元数据失败: {e}")
+        except Exception as e:
+            print(f"Metadata save failed (new format): {e}")
+    else:
+        # 没有 name，只能用旧格式
+        meta_path = get_cache_metadata_path(symbol, period, start_date)
+        try:
+            import json
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2, default=str)
+            print(f"Metadata saved to: {meta_path}")
+        except Exception as e:
+            print(f"Metadata save failed: {e}")
 
 
 def merge_and_deduplicate(old_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
@@ -261,6 +467,7 @@ def get_stock_data(
     symbol: Optional[str] = None,
     period: Optional[str] = None,
     start_date: Optional[str] = None,
+    name: Optional[str] = None,
     use_cache: bool = True,
     force_refresh: bool = False
 ) -> pd.DataFrame:
@@ -271,6 +478,7 @@ def get_stock_data(
         symbol: 股票代码，默认使用配置中的标的
         period: 周期，默认使用配置
         start_date: 开始日期，默认使用配置
+        name: 股票名称（可选），用于生成可读的缓存文件名
         use_cache: 是否使用缓存，默认 True
         force_refresh: 是否强制全量刷新，默认 False
 
@@ -282,8 +490,11 @@ def get_stock_data(
     symbol = symbol or config.symbol
     period = period or config.period
     start_date = start_date or config.start_date
+    # 如果没有传入 name，尝试从配置获取
+    if name is None and symbol == config.symbol:
+        name = config.symbol_name
 
-    print(f"=== Fetching data for {symbol} ===")
+    print(f"=== Fetching data for {symbol}" + (f" ({name})" if name else "") + " ===")
 
     # Helper to fetch full data from sources
     def _fetch_full(source_start_date: str) -> tuple[pd.DataFrame, str]:
@@ -307,34 +518,34 @@ def get_stock_data(
         print("Force refresh enabled, bypassing cache")
         df, source = _fetch_full(start_date)
         # Save with metadata
-        save_to_cache(df, symbol, period, start_date)
+        save_to_cache(df, symbol, period, start_date, name)
         latest_date = df["date"].max()
         meta = {
             "symbol": symbol, "period": period, "start_date": start_date,
             "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
             "source": source, "row_count": len(df), "integrity": "ok"
         }
-        save_cache_metadata(meta, symbol, period, start_date)
+        save_cache_metadata(meta, symbol, period, start_date, name)
         return df
 
     # 1. Try to load cache + metadata
     if use_cache:
-        cached_df = load_from_cache(symbol, period, start_date)
-        cached_meta = load_cache_metadata(symbol, period, start_date)
+        cached_df = load_from_cache(symbol, period, start_date, name)
+        cached_meta = load_cache_metadata(symbol, period, start_date, name)
 
         if cached_df is not None:
             if cached_meta is None:
                 # Old cache without metadata - do full refresh to create metadata
                 print("Old cache found (no metadata), doing full refresh to create metadata")
                 df, source = _fetch_full(start_date)
-                save_to_cache(df, symbol, period, start_date)
+                save_to_cache(df, symbol, period, start_date, name)
                 latest_date = df["date"].max()
                 meta = {
                     "symbol": symbol, "period": period, "start_date": start_date,
                     "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
                     "source": source, "row_count": len(df), "integrity": "ok"
                 }
-                save_cache_metadata(meta, symbol, period, start_date)
+                save_cache_metadata(meta, symbol, period, start_date, name)
                 return df
             else:
                 # Check if we need incremental update
@@ -354,7 +565,7 @@ def get_stock_data(
                     if len(inc_df) > 0:
                         # Merge and save
                         merged_df = merge_and_deduplicate(cached_df, inc_df)
-                        save_to_cache(merged_df, symbol, period, start_date)
+                        save_to_cache(merged_df, symbol, period, start_date, name)
                         new_latest = merged_df["date"].max()
                         new_meta = cached_meta.copy()
                         new_meta.update({
@@ -362,7 +573,7 @@ def get_stock_data(
                             "source": f"{cached_meta.get('source', '')} + {source}",
                             "row_count": len(merged_df)
                         })
-                        save_cache_metadata(new_meta, symbol, period, start_date)
+                        save_cache_metadata(new_meta, symbol, period, start_date, name)
                         return merged_df
                     else:
                         # No new data, return cached
@@ -375,14 +586,14 @@ def get_stock_data(
 
     # 2. No cache at all - full fetch
     df, source = _fetch_full(start_date)
-    save_to_cache(df, symbol, period, start_date)
+    save_to_cache(df, symbol, period, start_date, name)
     latest_date = df["date"].max()
     meta = {
         "symbol": symbol, "period": period, "start_date": start_date,
         "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
         "source": source, "row_count": len(df), "integrity": "ok"
     }
-    save_cache_metadata(meta, symbol, period, start_date)
+    save_cache_metadata(meta, symbol, period, start_date, name)
     return df
 
 
@@ -423,14 +634,16 @@ def fetch_batch_data(
 
     for i, stock in enumerate(stocks, 1):
         symbol = stock.symbol
+        name = stock.name
         if show_progress:
-            print(f"\n[{i}/{total}] Processing {symbol} - {stock.name}")
+            print(f"\n[{i}/{total}] Processing {symbol} - {name}")
 
         try:
             df = get_stock_data(
                 symbol=symbol,
                 period=period,
                 start_date=start_date,
+                name=name,
                 use_cache=use_cache,
                 force_refresh=force_refresh
             )
