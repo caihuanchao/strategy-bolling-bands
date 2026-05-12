@@ -411,6 +411,11 @@ def get_data_akshare_v2(symbol: str, start_date: str, period: str = "daily") -> 
     raise Exception("AKShare v2 unavailable")
 
 
+def _is_non_ashare(symbol: str) -> bool:
+    """判断是否非 A 股（如港股），A 股代码为 6 位数字"""
+    return len(symbol) != 6 or not symbol.isdigit()
+
+
 def get_data_baostock(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
     """BaoStock 数据源"""
     try:
@@ -501,17 +506,18 @@ def get_stock_data(
         sources = [
             ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, source_start_date, period)),
             ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, source_start_date, period)),
-            ("BaoStock", lambda: get_data_baostock(symbol, source_start_date, period)),
         ]
+        # BaoStock 仅支持 A 股
+        if not _is_non_ashare(symbol):
+            sources.append(("BaoStock", lambda: get_data_baostock(symbol, source_start_date, period)))
+
         for source_name, func in sources:
             try:
                 df = func()
                 return df, source_name
             except Exception:
                 continue
-        # All sources failed, use sample data
-        print("All online sources unavailable, using local sample data")
-        return get_sample_data(symbol, period=period), "Sample Data"
+        raise Exception("All data sources unavailable for " + symbol)
 
     # 0. Force refresh: bypass all cache logic
     if force_refresh:

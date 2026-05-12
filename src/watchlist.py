@@ -32,7 +32,7 @@ def load_watchlist(filepath: str = "watchlist.csv") -> List[StockInfo]:
         first_line = f.readline()
     sep = "\t" if "\t" in first_line else ","
 
-    df = pd.read_csv(filepath, sep=sep)
+    df = pd.read_csv(filepath, sep=sep, dtype=str)
 
     # 支持中文列名
     df = df.rename(columns={"代码": "symbol", "名称": "name"})
@@ -46,8 +46,10 @@ def load_watchlist(filepath: str = "watchlist.csv") -> List[StockInfo]:
     # 转换为 StockInfo 列表
     stocks = []
     for _, row in df.iterrows():
-        # 确保 symbol 是字符串，补零（比如 000333）
-        symbol = str(row["symbol"]).strip().zfill(6)
+        # 确保 symbol 是字符串，补零（只对短于5位的代码补零，保留港股5位代码）
+        symbol = str(row["symbol"]).strip()
+        if len(symbol) < 5:
+            symbol = symbol.zfill(6)
         name = str(row["name"]).strip()
         stocks.append(StockInfo(symbol=symbol, name=name))
 
