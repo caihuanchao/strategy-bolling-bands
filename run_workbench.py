@@ -115,17 +115,17 @@ def main():
     # 6. 生成 HTML 仪表板
     print("\n📄 生成仪表板...")
     dashboard_path = os.path.join(config.log_dir, "dashboard.html")
-    dashboard_old_path = os.path.join(config.log_dir, "dashboard_old.html")
+    dashboard_new_path = os.path.join(config.log_dir, "dashboard_new.html")
     try:
-        # 生成新版本（JS 驱动，从缓存加载）
-        generate_dashboard_js(output_path=dashboard_path)
-        # 同时保留旧版本用于对比
+        # 生成旧版本（完整功能，包含全部概览）
         generate_dashboard_html(
             signals=signals,
             data_dict=data_dict_full,
-            output_path=dashboard_old_path,
+            output_path=dashboard_path,
             volume_threshold=volume_threshold
         )
+        # 同时保留新版本用于对比
+        generate_dashboard_js(output_path=dashboard_new_path)
     except Exception as e:
         print(f"❌ 生成仪表板失败: {e}")
         return
@@ -138,8 +138,8 @@ def main():
     print(f"📈 买入信号: {buy_count}")
     print(f"📉 卖出信号: {sell_count}")
     print(f"🟢 增强信号: {enhanced_count}")
-    print(f"\n📄 新仪表板 (JS 驱动): {os.path.abspath(dashboard_path)}")
-    print(f"📄 旧仪表板 (对比用): {os.path.abspath(dashboard_old_path)}")
+    print(f"\n📄 主仪表板 (完整功能): {os.path.abspath(dashboard_path)}")
+    print(f"📄 新仪表板 (JS 驱动): {os.path.abspath(dashboard_new_path)}")
     print(f"💾 缓存数据: {os.path.abspath(config.cache_base_dir)}/")
     print("\n💡 提示: 新仪表板使用 JS 加载缓存数据，")
     print("   如果直接打开 HTML 遇到跨域问题，请使用本地服务器:")
