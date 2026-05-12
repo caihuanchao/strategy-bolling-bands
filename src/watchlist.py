@@ -27,7 +27,15 @@ def load_watchlist(filepath: str = "watchlist.csv") -> List[StockInfo]:
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"自选股文件不存在: {filepath}")
 
-    df = pd.read_csv(filepath)
+    # 自动检测分隔符（支持逗号或 Tab）
+    with open(filepath, "r", encoding="utf-8-sig") as f:
+        first_line = f.readline()
+    sep = "\t" if "\t" in first_line else ","
+
+    df = pd.read_csv(filepath, sep=sep)
+
+    # 支持中文列名
+    df = df.rename(columns={"代码": "symbol", "名称": "name"})
 
     # 检查必须的列
     required_cols = ["symbol", "name"]
