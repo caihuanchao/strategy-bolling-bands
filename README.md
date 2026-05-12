@@ -8,7 +8,8 @@
 - **智能缓存**：数据和计算结果分层缓存，加速重复运行
 - **布林带策略**：经典的 N=20, M=2 布林带策略，支持自定义参数
 - **成交量增强**：信号质量通过成交量放大确认
-- **HTML 仪表板**：JavaScript 驱动的交互式展示，从缓存加载数据
+- **HTML 仪表板**：静态 HTML 展示（旧版保留）
+- **Flask Web 仪表盘**：一键启动的交互式 Web 应用，支持实时查看信号、全部概览、股票详情和手动刷新
 - **多标的支持**：通过 watchlist.csv 管理自选股
 - **完整回测**：收益率、CAGR、最大回撤、胜率、盈亏比等指标
 - **导出友好**：CSV 格式的信号和历史数据，可用 Excel 直接分析
@@ -40,25 +41,35 @@ symbol,name
 ### 运行工作流
 
 ```bash
-# 运行自选股扫描和信号生成
+# 启动 Web 仪表盘（推荐，一键交互式访问）
+python run_server.py
+
+# 运行自选股扫描和静态 HTML 生成
 python run_workbench.py
 ```
 
 ### 查看结果
 
-```bash
-# 启动本地服务器
-python -m http.server 8000
-```
+运行 `python run_server.py` 后，浏览器会自动打开 http://localhost:5001
 
-然后浏览器访问：http://localhost:8000/logs/dashboard.html
+或运行静态版本：
+
+```bash
+python run_workbench.py
+python -m http.server 8000
+# 访问 http://localhost:8000/logs/dashboard.html
+```
 
 ## 项目结构
 
 ```
 .
-├── run_workbench.py      # 多标的扫描主入口
+├── run_server.py         # Web 仪表盘一键启动（推荐）
+├── app.py                # Flask Web 应用
+├── run_workbench.py      # 多标的扫描 + 静态 HTML 生成
 ├── run_backtest.py       # 单标的回测入口
+├── templates/
+│   └── dashboard.html    # Jinja2 仪表盘模板
 ├── watchlist.csv         # 自选股配置
 ├── requirements.txt      # 项目依赖
 ├── src/
@@ -76,7 +87,7 @@ python -m http.server 8000
 │   │   └── bollinger/
 │   └── *.csv             # 原始数据缓存
 └── logs/
-    ├── dashboard.html    # 新 JS 驱动的仪表板
+    ├── dashboard.html    # 静态仪表板
     └── dashboard_old.html # 旧版 Python 渲染仪表板
 ```
 
@@ -182,15 +193,15 @@ Phase 2 新增模块：
 - 扩展配置、回测、输出模块支持多周期模式
 
 ### Phase 3
+- ✅ Flask Web 仪表盘（替代原计划的 Streamlit）
 - ⏳ 自适应参数优化
-- ⏳ Streamlit Web 仪表盘
 - ⏳ 完整交易日志分析
 
 ## 常见问题
 
-### Q: 为什么需要本地服务器打开 HTML？
+### Q: 为什么推荐使用 Web 仪表盘而不是直接打开 HTML？
 
-A: 浏览器安全策略限制了直接通过 file:// 协议读取本地 CSV 文件。使用 Python 简单服务器可以解决跨域问题。
+A: `run_server.py` 启动的 Flask 应用提供实时数据交互、股票详情查看和手动刷新功能，体验优于静态 HTML。如果不需要 Web 服务，仍可使用 `run_workbench.py` 生成静态 HTML 并通过 `python -m http.server` 查看。
 
 ### Q: 数据缓存有效期是多久？
 
