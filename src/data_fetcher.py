@@ -468,6 +468,66 @@ def get_data_baostock(symbol: str, start_date: str, period: str = "daily") -> pd
         raise
 
 
+def get_data_hk_akshare(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
+    """AKShare 港股历史数据"""
+    import akshare as ak
+    print(f"Trying AKShare stock_hk_hist ({period})...")
+
+    if period not in ["daily", "d", "day"]:
+        raise Exception("stock_hk_hist only supports daily period")
+
+    # 转换日期格式: 20250101 -> 2025-01-01
+    end_date = datetime.now().strftime("%Y%m%d")
+
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = ak.stock_hk_hist(
+                symbol=symbol,
+                period=period,
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq"
+            )
+            # 标准化列名
+            df = df[["日期", "开盘", "最高", "最低", "收盘", "成交量"]].copy()
+            df.columns = ["date", "open", "high", "low", "close", "volume"]
+            df["date"] = df["date"].astype(str)
+            print(f"stock_hk_hist success! {len(df)} rows")
+            return df
+        except Exception as e:
+            print(f"stock_hk_hist attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5)
+    raise Exception("stock_hk_hist unavailable")
+
+
+def get_data_hk_daily_akshare(symbol: str, start_date: str, period: str = "daily") -> pd.DataFrame:
+    """AKShare 港股新浪数据源（fallback）"""
+    import akshare as ak
+    print(f"Trying AKShare stock_hk_daily ({period})...")
+
+    if period not in ["daily", "d", "day"]:
+        raise Exception("stock_hk_daily only supports daily period")
+
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = ak.stock_hk_daily(symbol=symbol, adjust="qfq")
+            df["date"] = df["date"].astype(str)
+            # 过滤日期范围
+            df = df[df["date"] >= start_date]
+            if len(df) == 0:
+                raise Exception("stock_hk_daily no data after start_date filter")
+            print(f"stock_hk_daily success! {len(df)} rows")
+            return df
+        except Exception as e:
+            print(f"stock_hk_daily attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5)
+    raise Exception("stock_hk_daily unavailable")
+
+
 def get_stock_data(
     symbol: Optional[str] = None,
     period: Optional[str] = None,
@@ -503,13 +563,19 @@ def get_stock_data(
 
     # Helper to fetch full data from sources
     def _fetch_full(source_start_date: str) -> tuple[pd.DataFrame, str]:
-        sources = [
-            ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, source_start_date, period)),
-            ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, source_start_date, period)),
-        ]
-        # BaoStock 仅支持 A 股
-        if not _is_non_ashare(symbol):
-            sources.append(("BaoStock", lambda: get_data_baostock(symbol, source_start_date, period)))
+        if _is_non_ashare(symbol):
+            # 港股等非 A 股：使用港股专用数据源
+            sources = [
+                ("AKShare stock_hk_hist", lambda: get_data_hk_akshare(symbol, source_start_date, period)),
+                ("AKShare stock_hk_daily", lambda: get_data_hk_daily_akshare(symbol, source_start_date, period)),
+            ]
+        else:
+            # A 股：使用 A 股数据源
+            sources = [
+                ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, source_start_date, period)),
+                ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, source_start_date, period)),
+                ("BaoStock", lambda: get_data_baostock(symbol, source_start_date, period)),
+            ]
 
         for source_name, func in sources:
             try:
