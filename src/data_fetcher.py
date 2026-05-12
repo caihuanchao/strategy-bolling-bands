@@ -564,10 +564,10 @@ def get_stock_data(
     # Helper to fetch full data from sources
     def _fetch_full(source_start_date: str) -> tuple[pd.DataFrame, str]:
         if _is_non_ashare(symbol):
-            # 港股等非 A 股：使用港股专用数据源
+            # 港股等非 A 股：优先使用新浪数据源（更稳定），东方财富作为备选
             sources = [
-                ("AKShare stock_hk_hist", lambda: get_data_hk_akshare(symbol, source_start_date, period)),
                 ("AKShare stock_hk_daily", lambda: get_data_hk_daily_akshare(symbol, source_start_date, period)),
+                ("AKShare stock_hk_hist", lambda: get_data_hk_akshare(symbol, source_start_date, period)),
             ]
         else:
             # A 股：使用 A 股数据源
