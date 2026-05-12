@@ -8,6 +8,7 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore', message='findfont:')
+from typing import Any
 
 from .config import get_config, ensure_dirs
 from .backtest import BacktestResult, Trade
@@ -644,4 +645,107 @@ def generate_dashboard_js(
 
     print(f"\n✅ JS 驱动仪表板已生成: {output_path}")
     return output_path
+
+
+# === Phase 2: 多周期回测输出 ===
+def print_multi_period_comparison(mp_result: Any):
+    """打印多周期 vs 单周期对比报告"""
+    single = mp_result.single_result
+    multi = mp_result.multi_result
+
+    print("\n" + "=" * 70)
+    print("多周期共振策略 vs 单周期策略 - 对比报告")
+    print("=" * 70)
+
+    # 表格形式对比
+    print(f"\n{'指标':<20} {'单周期(基准)':<15} {'多周期共振':<15} {'差异':<15}")
+    print("-" * 70)
+
+    # 收益率
+    diff_return = multi.total_return - single.total_return
+    print(f"{'总收益率':<20} {single.total_return*100:>+12.2f}% {multi.total_return*100:>+12.2f}% {diff_return*100:>+12.2f}%")
+
+    # 年化
+    diff_cagr = multi.cagr - single.cagr
+    print(f"{'年化收益率':<20} {single.cagr*100:>+12.2f}% {multi.cagr*100:>+12.2f}% {diff_cagr*100:>+12.2f}%")
+
+    # 最大回撤
+    diff_dd = single.max_drawdown - multi.max_drawdown  # 负的更少是变好
+    print(f"{'最大回撤':<20} {single.max_drawdown*100:>12.2f}% {multi.max_drawdown*100:>12.2f}% {diff_dd*100:>12.2f}%")
+
+    # 胜率
+    diff_win = multi.win_rate - single.win_rate
+    print(f"{'胜率':<20} {single.win_rate*100:>12.2f}% {multi.win_rate*100:>12.2f}% {diff_win*100:>12.2f}%")
+
+    # 盈亏比
+    diff_rr = multi.reward_risk_ratio - single.reward_risk_ratio
+    print(f"{'盈亏比':<20} {single.reward_risk_ratio:>12.2f} {multi.reward_risk_ratio:>12.2f} {diff_rr:>12.2f}")
+
+    # 交易次数
+    diff_trades = multi.total_trades - single.total_trades
+    print(f"{'交易次数':<20} {single.total_trades:>12} {multi.total_trades:>12} {diff_trades:>12}")
+
+    print("-" * 70)
+
+    # 总结
+    print("\n" + "-" * 70)
+    print("总结:")
+    if diff_return > 0:
+        print(f"  ✅ 多周期策略胜出: 收益率提升 {diff_return*100:.2f}%")
+    else:
+        print(f"  ⚠️  单周期策略表现更好: 差异 {diff_return*100:.2f}%")
+
+    if diff_dd > 0:
+        print(f"  ✅ 回撤优化: 最大回撤减少 {diff_dd*100:.2f}%")
+    else:
+        print(f"  ⚠️  回撤变大: {abs(diff_dd)*100:.2f}%")
+    print("-" * 70 + "\n")
+
+
+def plot_multi_period_comparison(mp_result: Any, filename: str = "comparison_chart.png"):
+    """绘制多周期 vs 单周期净值对比图"""
+    from .config import get_config, ensure_dirs
+    ensure_dirs()
+    config = get_config()
+    filepath = f"{config.log_dir}/{filename}"
+
+    single = mp_result.single_result
+    multi = mp_result.multi_result
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # 归一化净值曲线（都从 1 开始）
+    single_norm = pd.Series(single.portfolio_values) / single.initial_capital
+    multi_norm = pd.Series(multi.portfolio_values) / multi.initial_capital
+    x_dates = single.df["date"] if len(single.df) == len(single_norm) else range(len(single_norm))
+
+    ax.plot(x_dates, single_norm, label="单周期(基准)", color="#1f77b4", linewidth=2)
+    ax.plot(x_dates, multi_norm, label="多周期共振", color="#ff7f0e", linewidth=2)
+    ax.axhline(y=1.0, color="gray", linestyle="--", alpha=0.5)
+
+    ax.set_title("策略对比 - 净值曲线 (归一化)", fontsize=14)
+    ax.set_ylabel("净值倍数", fontsize=12)
+    ax.legend(fontsize=10, loc="upper left")
+    ax.grid(True, alpha=0.3)
+
+    # 日期标签
+    if hasattr(x_dates, '__len__') and len(x_dates) > 0:
+        step = max(1, len(x_dates) // 20)
+        if hasattr(x_dates, 'iloc'):
+            ax.set_xticks(x_dates[::step])
+        ax.tick_params(axis='x', rotation=45)
+
+    plt.tight_layout()
+    plt.savefig(filepath, dpi=150)
+    print(f"对比图表已保存至: {filepath}")
+    plt.close()
+
+
+def save_multi_period_report(mp_result: Any):
+    """保存完整多周期回测报告"""
+    print_multi_period_comparison(mp_result)
+    save_trades_to_csv(mp_result.single_result.trades, "trades_single.csv")
+    save_trades_to_csv(mp_result.multi_result.trades, "trades_multi.csv")
+    plot_strategy_chart(mp_result.multi_result, "strategy_multi.png")
+    plot_multi_period_comparison(mp_result)
 
