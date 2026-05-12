@@ -17,6 +17,13 @@ def get_cache_path(symbol: str, period: str, start_date: str) -> str:
     return os.path.join(config.cache_dir, filename)
 
 
+def get_cache_metadata_path(symbol: str, period: str, start_date: str) -> str:
+    """获取缓存元数据文件路径"""
+    config = get_config()
+    filename = f"{symbol}_{period}_{start_date}.meta.json"
+    return os.path.join(config.cache_dir, filename)
+
+
 def load_from_cache(symbol: str, period: str, start_date: str) -> Optional[pd.DataFrame]:
     """从本地缓存加载数据"""
     cache_path = get_cache_path(symbol, period, start_date)
@@ -39,6 +46,46 @@ def save_to_cache(df: pd.DataFrame, symbol: str, period: str, start_date: str):
         print(f"Data cached to: {cache_path}")
     except Exception as e:
         print(f"Cache save failed: {e}")
+
+
+def load_cache_metadata(symbol: str, period: str, start_date: str) -> Optional[dict]:
+    """加载缓存元数据"""
+    meta_path = get_cache_metadata_path(symbol, period, start_date)
+    if os.path.exists(meta_path):
+        try:
+            import json
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Metadata load failed: {e}")
+    return None
+
+
+def save_cache_metadata(metadata: dict, symbol: str, period: str, start_date: str):
+    """保存缓存元数据"""
+    ensure_dirs()
+    meta_path = get_cache_metadata_path(symbol, period, start_date)
+    try:
+        import json
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2, default=str)
+        print(f"Metadata saved to: {meta_path}")
+    except Exception as e:
+        print(f"Metadata save failed: {e}")
+
+
+def merge_and_deduplicate(old_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    """合并两个 DataFrame 并按日期去重（保留最新的）"""
+    if old_df is None or len(old_df) == 0:
+        return new_df.sort_values("date").reset_index(drop=True)
+    if new_df is None or len(new_df) == 0:
+        return old_df.sort_values("date").reset_index(drop=True)
+
+    # 合并并去重
+    combined = pd.concat([old_df, new_df], ignore_index=True)
+    # 按日期排序，保留最后出现的（最新的）
+    combined = combined.sort_values("date").drop_duplicates("date", keep="last")
+    return combined.reset_index(drop=True)
 
 
 def get_sample_data(symbol: str = "000333", days: int = 120, period: str = "daily") -> pd.DataFrame:
@@ -214,20 +261,23 @@ def get_stock_data(
     symbol: Optional[str] = None,
     period: Optional[str] = None,
     start_date: Optional[str] = None,
-    use_cache: bool = True
+    use_cache: bool = True,
+    force_refresh: bool = False
 ) -> pd.DataFrame:
     """
-    获取股票数据（统一入口）
+    获取股票数据（统一入口） - 支持增量更新
 
     Args:
         symbol: 股票代码，默认使用配置中的标的
         period: 周期，默认使用配置
         start_date: 开始日期，默认使用配置
         use_cache: 是否使用缓存，默认 True
+        force_refresh: 是否强制全量刷新，默认 False
 
     Returns:
         标准化 DataFrame，包含列：date, open, high, low, close, volume
     """
+    import json
     config = get_config()
     symbol = symbol or config.symbol
     period = period or config.period
@@ -235,31 +285,104 @@ def get_stock_data(
 
     print(f"=== Fetching data for {symbol} ===")
 
-    # 1. 尝试从缓存加载
+    # Helper to fetch full data from sources
+    def _fetch_full(source_start_date: str) -> tuple[pd.DataFrame, str]:
+        sources = [
+            ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, source_start_date, period)),
+            ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, source_start_date, period)),
+            ("BaoStock", lambda: get_data_baostock(symbol, source_start_date, period)),
+        ]
+        for source_name, func in sources:
+            try:
+                df = func()
+                return df, source_name
+            except Exception:
+                continue
+        # All sources failed, use sample data
+        print("All online sources unavailable, using local sample data")
+        return get_sample_data(symbol, period=period), "Sample Data"
+
+    # 0. Force refresh: bypass all cache logic
+    if force_refresh:
+        print("Force refresh enabled, bypassing cache")
+        df, source = _fetch_full(start_date)
+        # Save with metadata
+        save_to_cache(df, symbol, period, start_date)
+        latest_date = df["date"].max()
+        meta = {
+            "symbol": symbol, "period": period, "start_date": start_date,
+            "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
+            "source": source, "row_count": len(df), "integrity": "ok"
+        }
+        save_cache_metadata(meta, symbol, period, start_date)
+        return df
+
+    # 1. Try to load cache + metadata
     if use_cache:
-        cached = load_from_cache(symbol, period, start_date)
-        if cached is not None:
-            return cached
+        cached_df = load_from_cache(symbol, period, start_date)
+        cached_meta = load_cache_metadata(symbol, period, start_date)
 
-    # 2. 尝试各数据源（优先使用 AKShare v2）
-    sources = [
-        ("AKShare stock_zh_a_hist_tx", lambda: get_data_akshare_v2(symbol, start_date, period)),
-        ("AKShare stock_zh_a_hist", lambda: get_data_akshare_v1(symbol, start_date, period)),
-        ("BaoStock", lambda: get_data_baostock(symbol, start_date, period)),
-    ]
+        if cached_df is not None:
+            if cached_meta is None:
+                # Old cache without metadata - do full refresh to create metadata
+                print("Old cache found (no metadata), doing full refresh to create metadata")
+                df, source = _fetch_full(start_date)
+                save_to_cache(df, symbol, period, start_date)
+                latest_date = df["date"].max()
+                meta = {
+                    "symbol": symbol, "period": period, "start_date": start_date,
+                    "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
+                    "source": source, "row_count": len(df), "integrity": "ok"
+                }
+                save_cache_metadata(meta, symbol, period, start_date)
+                return df
+            else:
+                # Check if we need incremental update
+                today = datetime.now().strftime("%Y-%m-%d")
+                latest_date = cached_meta.get("latest_date", "")
+                if latest_date < today:
+                    print(f"Cache outdated (latest: {latest_date} < today: {today}), fetching incremental data")
+                    # Calculate incremental start date: latest_date + 1 day
+                    try:
+                        from datetime import timedelta
+                        dt = datetime.strptime(latest_date[:10], "%Y-%m-%d")
+                        inc_start_date = (dt + timedelta(days=1)).strftime("%Y%m%d")
+                    except Exception:
+                        inc_start_date = start_date  # Fallback if date parsing fails
+                    # Fetch incremental data
+                    inc_df, source = _fetch_full(inc_start_date)
+                    if len(inc_df) > 0:
+                        # Merge and save
+                        merged_df = merge_and_deduplicate(cached_df, inc_df)
+                        save_to_cache(merged_df, symbol, period, start_date)
+                        new_latest = merged_df["date"].max()
+                        new_meta = cached_meta.copy()
+                        new_meta.update({
+                            "latest_date": new_latest, "last_updated": datetime.now().isoformat(),
+                            "source": f"{cached_meta.get('source', '')} + {source}",
+                            "row_count": len(merged_df)
+                        })
+                        save_cache_metadata(new_meta, symbol, period, start_date)
+                        return merged_df
+                    else:
+                        # No new data, return cached
+                        print("No new data available, returning cached data")
+                        return cached_df
+                else:
+                    # Cache is fresh
+                    print(f"Cache is fresh (latest: {latest_date})")
+                    return cached_df
 
-    for source_name, func in sources:
-        try:
-            df = func()
-            save_to_cache(df, symbol, period, start_date)
-            return df
-        except Exception:
-            continue
-
-    # 3. 所有源失败，使用样本数据
-    print("All online sources unavailable, using local sample data")
-    df = get_sample_data(symbol, period=period)
+    # 2. No cache at all - full fetch
+    df, source = _fetch_full(start_date)
     save_to_cache(df, symbol, period, start_date)
+    latest_date = df["date"].max()
+    meta = {
+        "symbol": symbol, "period": period, "start_date": start_date,
+        "latest_date": latest_date, "last_updated": datetime.now().isoformat(),
+        "source": source, "row_count": len(df), "integrity": "ok"
+    }
+    save_cache_metadata(meta, symbol, period, start_date)
     return df
 
 
@@ -272,6 +395,7 @@ def fetch_batch_data(
     period: Optional[str] = None,
     start_date: Optional[str] = None,
     use_cache: bool = True,
+    force_refresh: bool = False,
     request_interval: float = 0.3,
     show_progress: bool = True
 ) -> Tuple[Dict[str, pd.DataFrame], List[str]]:
@@ -307,7 +431,8 @@ def fetch_batch_data(
                 symbol=symbol,
                 period=period,
                 start_date=start_date,
-                use_cache=use_cache
+                use_cache=use_cache,
+                force_refresh=force_refresh
             )
             data_dict[symbol] = df
         except Exception as e:
