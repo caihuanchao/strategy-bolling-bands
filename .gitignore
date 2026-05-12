@@ -43,3 +43,6 @@ data/
 logs/
 *.png
 stock_data_cache.csv
+
+# Claude Code
+.claude/
