@@ -387,7 +387,11 @@ def get_data_akshare_v2(symbol: str, start_date: str, period: str = "daily") -> 
         raise Exception("AKShare v2 only supports daily")
 
     # stock_zh_a_hist_tx 需要带市场前缀的股票代码
-    symbol_tx = f"sz{symbol}" if symbol.startswith('0') or symbol.startswith('3') else f"sh{symbol}"
+    # 深交所: 0xxxxx, 1xxxxx(ETF等), 2xxxxx, 3xxxxx; 上交所: 5xxxxx, 6xxxxx
+    if symbol and symbol[0] in '0123':
+        symbol_tx = f"sz{symbol}"
+    else:
+        symbol_tx = f"sh{symbol}"
 
     max_retries = 2
     for attempt in range(max_retries):
@@ -435,7 +439,7 @@ def get_data_baostock(symbol: str, start_date: str, period: str = "daily") -> pd
         if lg.error_code != '0':
             raise Exception(f"BaoStock login failed")
 
-        symbol_bs = f"sz.{symbol}" if symbol.startswith('0') else f"sh.{symbol}"
+        symbol_bs = f"sz.{symbol}" if symbol[0] in '0123' else f"sh.{symbol}"
         rs = bs.query_history_k_data_plus(
             symbol_bs,
             "date,time,open,high,low,close,volume",
