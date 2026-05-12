@@ -186,3 +186,99 @@ def _calculate_performance(
         winning_trades=winning_trades,
         losing_trades=losing_trades
     )
+
+
+# === Phase 2: 多周期回测 ===
+@dataclass
+class MultiPeriodBacktestResult:
+    """多周期回测结果（包含对比）"""
+    # 多周期结果
+    multi_result: BacktestResult
+    # 单周期结果（用于对比）
+    single_result: BacktestResult
+
+
+def run_multi_period_backtest(
+    symbol: str,
+    initial_capital: Optional[float] = None
+) -> MultiPeriodBacktestResult:
+    """
+    运行多周期回测，并与单周期进行对比
+
+    Args:
+        symbol: 股票代码
+        initial_capital: 初始资金
+
+    Returns:
+        MultiPeriodBacktestResult，包含两种策略的回测结果
+    """
+    from src.config import get_config
+    from src.data_fetcher import get_stock_data
+    from src.bollinger import calculate_bollinger
+    from src.signals import generate_signals
+
+    config = get_config()
+    initial_capital = initial_capital or config.initial_capital
+
+    print("\n" + "=" * 60)
+    print("PHASE 1: Single-Period Backtest (Benchmark)")
+    print("=" * 60)
+
+    # 1. 单周期回测（作为基准）
+    df_single = get_stock_data(symbol, period="daily", use_cache=True)
+    df_single = calculate_bollinger(df_single, config.bollinger_n, config.bollinger_m)
+    df_single = generate_signals(df_single)
+    single_result = run_backtest(df_single, initial_capital)
+
+    print(f"\nBenchmark complete:")
+    print(f"  Total return: {single_result.total_return:.2%}")
+    print(f"  CAGR: {single_result.cagr:.2%}")
+    print(f"  Max drawdown: {single_result.max_drawdown:.2%}")
+    print(f"  Win rate: {single_result.win_rate:.2%}")
+    print(f"  Trades: {single_result.total_trades}")
+
+    print("\n" + "=" * 60)
+    print("PHASE 2: Multi-Period Resonance Backtest")
+    print("=" * 60)
+
+    # 2. 多周期回测
+    from src.multi_period import prepare_multi_period_backtest
+
+    try:
+        result_df, _ = prepare_multi_period_backtest(symbol, config)
+
+        # 使用共振信号替换原始信号
+        df_multi = result_df.copy()
+        df_multi["buy_signal"] = df_multi.get("resonance_buy", 0)
+        df_multi["sell_signal"] = df_multi.get("resonance_sell", 0)
+
+        multi_result = run_backtest(df_multi, initial_capital)
+
+        print(f"\nMulti-period strategy complete:")
+        print(f"  Total return: {multi_result.total_return:.2%}")
+        print(f"  CAGR: {multi_result.cagr:.2%}")
+        print(f"  Max drawdown: {multi_result.max_drawdown:.2%}")
+        print(f"  Win rate: {multi_result.win_rate:.2%}")
+        print(f"  Trades: {multi_result.total_trades}")
+
+        # 对比
+        print("\n" + "-" * 60)
+        print("COMPARISON:")
+        print("-" * 60)
+        outperf = (multi_result.total_return - single_result.total_return)
+        print(f"  Outperformance: {outperf:.2%}")
+        dd_improve = (single_result.max_drawdown - multi_result.max_drawdown)
+        print(f"  Drawdown improvement: {dd_improve:.2%}")
+        print("-" * 60)
+
+    except Exception as e:
+        print(f"Multi-period backtest failed: {e}")
+        import traceback
+        traceback.print_exc()
+        # 失败时返回基准结果两次
+        multi_result = single_result
+
+    return MultiPeriodBacktestResult(
+        multi_result=multi_result,
+        single_result=single_result
+    )
