@@ -7,14 +7,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 这是一个**自适应多周期布林带交易工作台**，用于 A 股美的集团(000333)的量化交易策略回测。项目采用渐进式迭代开发：
 
 - **Phase 1 (MVP)**: ✅ 已完成 - 日线级别布林带策略 + 基础回测引擎
-- **Phase 2**: 多周期共振 + MACD/RSI 辅助指标
+- **Phase 2**: ✅ 已完成 - 多周期共振 + MACD/RSI 辅助指标
 - **Phase 3**: 自适应参数 + Streamlit Web 仪表盘
 
 ## Common Commands
 
 ```bash
-# 运行完整回测
+# 运行 Phase 1 单周期回测
 python run_backtest.py
+
+# 运行 Phase 2 多周期共振回测
+python run_backtest.py --phase2
 
 # 运行旧版单脚本（保留用于对比）
 python strategy-bolling-bands.py
@@ -25,21 +28,27 @@ python strategy-bolling-bands.py
 ### Module Dependencies
 
 ```
-run_backtest.py (主入口)
-  └─ src/config.py (配置管理)
-  └─ src/data_fetcher.py → (数据获取: 多源 fallback + 本地缓存)
+run_backtest.py (主入口，支持 --phase2 参数)
+  └─ src/config.py (配置管理，含多周期和指标配置)
+  └─ src/data_fetcher.py → (数据获取: 多源 fallback + 本地缓存，支持 1h/4h 周期)
   └─ src/bollinger.py → (布林带计算)
-  └─ src/signals.py → (信号生成)
-  └─ src/backtest.py → (回测引擎: 收益计算 + 绩效指标)
-  └─ src/output.py → (输出模块: 报告 + CSV + 图表)
+  └─ src/indicators.py → (MACD/RSI 指标计算)
+  └─ src/multi_period.py → (多周期数据对齐和共振逻辑)
+  └─ src/signals.py → (信号生成，含多周期共振信号)
+  └─ src/backtest.py → (回测引擎: 收益计算 + 绩效指标，支持多周期回测)
+  └─ src/output.py → (输出模块: 报告 + CSV + 图表，含多周期对比)
 ```
 
 ### Key Components
 
-- **config.py**: 使用 dataclass 管理策略配置（标的、参数、交易成本等）
-- **data_fetcher.py**: 统一数据入口，按顺序尝试 AKShare v1/v2 → BaoStock → 本地样本数据，并缓存到 data/ 目录
-- **backtest.py**: 包含 Trade 和 BacktestResult dataclass，计算总收益率、CAGR、最大回撤、胜率、盈亏比等指标
-- **output.py**: 控制台报告 + CSV 交易记录 + matplotlib 双图（价格/布林带/信号 + 净值曲线）
+- **config.py**: 使用 dataclass 管理策略配置（标的、参数、交易成本、多周期配置、MACD/RSI 参数等）
+- **data_fetcher.py**: 统一数据入口，按顺序尝试 AKShare v1/v2 → BaoStock → 本地样本数据，并缓存到 data/ 目录，支持 1h/4h/daily 周期
+- **indicators.py** (Phase 2): MACD (12/26/9) 和 RSI (14) 指标计算
+- **multi_period.py** (Phase 2): 多周期数据对齐、共振信号检查逻辑
+- **bollinger.py**: 布林带计算（MA20 ± 2SD）
+- **signals.py**: 信号生成，含多周期共振信号支持
+- **backtest.py**: 包含 Trade、BacktestResult、MultiPeriodBacktestResult dataclass，计算总收益率、CAGR、最大回撤、胜率、盈亏比等指标
+- **output.py**: 控制台报告 + CSV 交易记录 + matplotlib 图表（含多周期策略对比）
 
 ## Important Files
 

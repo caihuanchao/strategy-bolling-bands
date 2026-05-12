@@ -161,9 +161,25 @@ class Config:
 - ✅ JavaScript 驱动的 HTML 仪表板
 
 ### Phase 2
-- ⏳ 多周期共振（4小时/1小时）
-- ⏳ MACD/RSI 辅助指标
+- ✅ 多周期共振（4小时/1小时）
+- ✅ MACD/RSI 辅助指标
 - ⏳ 信号历史对比
+
+
+### Phase 2 使用
+
+```bash
+# 运行多周期共振回测
+python run_backtest.py --phase2
+
+# 运行单周期基准回测（对比用）
+python run_backtest.py
+```
+
+Phase 2 新增模块：
+- `src/indicators.py`：MACD、RSI 指标计算
+- `src/multi_period.py`：多周期数据对齐、共振信号检查
+- 扩展配置、回测、输出模块支持多周期模式
 
 ### Phase 3
 - ⏳ 自适应参数优化
