@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -35,6 +35,30 @@ class Config:
     # 输出配置
     log_dir: str = "logs"
     plot_figsize: tuple = (16, 8)
+
+    # === Phase 2: 多周期共振配置 ===
+    # 多周期开关（默认关闭，保持向后兼容）
+    multi_period_enabled: bool = False
+
+    # 多周期列表：按优先级从高到低（主周期在前）
+    periods: List[str] = ("daily", "4h", "1h")
+
+    # 共振规则：是否需要所有周期都确认（True=严格，False=至少2个）
+    resonance_require_all: bool = False
+
+    # === Phase 2: MACD 配置 ===
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+
+    # === Phase 2: RSI 配置 ===
+    rsi_period: int = 14
+    rsi_overbought: float = 70.0  # 超买阈值
+    rsi_oversold: float = 30.0  # 超卖阈值
+
+    # 成交量增强配置
+    volume_threshold: float = 1.5  # 成交量放大阈值
+    volume_window: int = 20
 
 
 def get_config() -> Config:
