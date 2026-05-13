@@ -299,24 +299,30 @@
                     (l.volume_ratio ? '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>' : '') +
                     '</div>';
 
-                // MACD + RSI 指标卡片
-                let rsiColor = '#333', rsiLabel = '';
+                // MACD + RSI 指标卡片 + 解读
+                let rsiColor = '#333', rsiLabel = '', rsiTip = '';
                 if (l.rsi != null) {
-                    if (l.rsi >= 70) { rsiColor = '#dc2626'; rsiLabel = '超买'; }
-                    else if (l.rsi <= 30) { rsiColor = '#16a34a'; rsiLabel = '超卖'; }
-                    else if (l.rsi >= 50) { rsiColor = '#e74c3c'; }
-                    else { rsiColor = '#27ae60'; }
+                    if (l.rsi >= 70) { rsiColor = '#dc2626'; rsiLabel = '超买 ⚠️'; rsiTip = 'RSI≥70：超买区域，短期可能回调，不宜追高'; }
+                    else if (l.rsi <= 30) { rsiColor = '#16a34a'; rsiLabel = '超卖 ⚡'; rsiTip = 'RSI≤30：超卖区域，短期可能反弹，关注买入机会'; }
+                    else if (l.rsi >= 50) { rsiColor = '#e74c3c'; rsiLabel = '偏强'; rsiTip = '50<RSI<70：多方占优，趋势偏强'; }
+                    else { rsiColor = '#27ae60'; rsiLabel = '偏弱'; rsiTip = '30<RSI<50：空方占优，趋势偏弱'; }
                 }
-                let macdColor = '#333';
+                let macdTrendLabel = '', macdTrendColor = '#333', macdTrendTip = '';
+                if (l.macd != null && l.macd_signal != null) {
+                    if (l.macd > l.macd_signal) { macdTrendLabel = '金叉 ↗'; macdTrendColor = '#16a34a'; macdTrendTip = 'MACD上穿信号线：看涨信号，短期趋势向上'; }
+                    else { macdTrendLabel = '死叉 ↘'; macdTrendColor = '#dc2626'; macdTrendTip = 'MACD下穿信号线：看跌信号，短期趋势向下'; }
+                }
+                let barColor = '#333', barLabel = '', barTip = '';
                 if (l.macd_histogram != null) {
-                    macdColor = l.macd_histogram >= 0 ? '#dc2626' : '#16a34a';
+                    if (l.macd_histogram > 0) { barColor = '#dc2626'; barLabel = '多方'; barTip = 'MACD柱>0：多方主导，红柱越长动能越强'; }
+                    else { barColor = '#16a34a'; barLabel = '空方'; barTip = 'MACD柱<0：空方主导，绿柱越长空方越强'; }
                 }
                 html += '<h3 style="margin:16px 0 8px;color:#2c3e50;">📊 技术指标</h3>' +
                     '<div class="detail-stats">' +
-                    '<div class="detail-stat"><div class="val" style="font-size:16px">' + (l.macd != null ? l.macd.toFixed(3) : '-') + '</div><div class="lbl">MACD</div></div>' +
-                    '<div class="detail-stat"><div class="val" style="font-size:16px">' + (l.macd_signal != null ? l.macd_signal.toFixed(3) : '-') + '</div><div class="lbl">信号线</div></div>' +
-                    '<div class="detail-stat"><div class="val" style="font-size:16px;color:' + macdColor + '">' + (l.macd_histogram != null ? l.macd_histogram.toFixed(3) : '-') + '</div><div class="lbl">MACD柱</div></div>' +
-                    '<div class="detail-stat"><div class="val" style="font-size:18px;color:' + rsiColor + '">' + (l.rsi != null ? l.rsi.toFixed(1) : '-') + '</div><div class="lbl">RSI' + (rsiLabel ? ' ' + rsiLabel : '') + '</div></div>' +
+                    '<div class="detail-stat" title="' + macdTrendTip + '"><div class="val" style="font-size:16px">' + (l.macd != null ? l.macd.toFixed(3) : '-') + '</div><div class="lbl">MACD <span style="color:' + macdTrendColor + ';font-weight:600">' + macdTrendLabel + '</span></div></div>' +
+                    '<div class="detail-stat" title="' + macdTrendTip + '"><div class="val" style="font-size:16px">' + (l.macd_signal != null ? l.macd_signal.toFixed(3) : '-') + '</div><div class="lbl">信号线</div></div>' +
+                    '<div class="detail-stat" title="' + barTip + '"><div class="val" style="font-size:16px;color:' + barColor + '">' + (l.macd_histogram != null ? l.macd_histogram.toFixed(3) : '-') + '</div><div class="lbl">MACD柱 <span style="color:' + barColor + ';font-weight:600">' + barLabel + '</span></div></div>' +
+                    '<div class="detail-stat" title="' + rsiTip + '"><div class="val" style="font-size:18px;color:' + rsiColor + '">' + (l.rsi != null ? l.rsi.toFixed(1) : '-') + '</div><div class="lbl">RSI <span style="color:' + rsiColor + ';font-weight:600">' + rsiLabel + '</span></div></div>' +
                     '</div>';
 
                 // 双面板图表 (价格+布林带 / MACD)
