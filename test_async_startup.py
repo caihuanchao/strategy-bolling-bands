@@ -90,6 +90,39 @@ def test_background_refresh_updates_state():
     print(f"  PASS: background refresh completed, {state['total_stocks']} stocks loaded")
 
 
+def test_stock_api_returns_macd_rsi_columns():
+    """Test 6: /api/stock/<symbol> history 包含 MACD/RSI 列"""
+    app_module.load_cached_data()
+
+    with app_module.app.test_client() as client:
+        resp = client.get('/api/stock/000333')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        history = data['history']
+
+        required = ['macd', 'macd_signal', 'macd_histogram', 'rsi']
+        for col in required:
+            assert col in history[0], f"Missing column: {col}"
+        print(f"  PASS: history has MACD/RSI columns: {required}")
+
+
+def test_stock_api_latest_has_macd_rsi():
+    """Test 7: /api/stock/<symbol> latest 包含 MACD/RSI 当前值"""
+    app_module.load_cached_data()
+
+    with app_module.app.test_client() as client:
+        resp = client.get('/api/stock/000333')
+        data = resp.get_json()
+        latest = data['latest']
+
+        for field in ['macd', 'macd_signal', 'macd_histogram', 'rsi']:
+            assert field in latest, f"Missing field: {field}"
+            val = latest[field]
+            assert val is None or isinstance(val, (int, float)), \
+                f"{field} should be number or null, got {type(val).__name__}: {val}"
+        print(f"  PASS: latest has MACD={latest['macd']}, RSI={latest['rsi']}")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("TDD Tests: Cache-first startup + background refresh")
@@ -100,6 +133,8 @@ if __name__ == "__main__":
         ("load_cached_data no crash", test_load_cached_data_no_crash_on_missing_data),
         ("API loading state during refresh", test_api_returns_loading_during_refresh),
         ("Flask responds immediately", test_flask_responds_immediately_after_cache_load),
+        ("API stock returns MACD/RSI columns", test_stock_api_returns_macd_rsi_columns),
+        ("API stock latest has MACD/RSI values", test_stock_api_latest_has_macd_rsi),
     ]
 
     passed = 0

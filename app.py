@@ -16,6 +16,7 @@ from src.watchlist import load_watchlist, create_sample_watchlist
 from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
 from src.signals import scan_all_signals, Signal
+from src.indicators import calculate_macd, calculate_rsi
 from src import cache
 
 app = Flask(__name__)
@@ -72,6 +73,8 @@ def load_data():
             continue
         df = data_dict_raw[symbol]
         df = calculate_bollinger(df, n=config.bollinger_n, m=config.bollinger_m)
+        df = calculate_macd(df, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
+        df = calculate_rsi(df, period=config.rsi_period)
         data_dict_full[symbol] = (name, df)
         cache.save_bollinger_history(symbol, name, df)
 
@@ -234,7 +237,8 @@ def api_stock_detail(symbol):
 
     # 选择需要的列
     cols = ["date", "open", "high", "low", "close", "volume"]
-    extra_cols = [c for c in ["ma_mid", "boll_up", "boll_down", "buy_signal", "sell_signal"] if c in df_display.columns]
+    extra_cols = [c for c in ["ma_mid", "boll_up", "boll_down", "buy_signal", "sell_signal",
+                              "macd", "macd_signal", "macd_histogram", "rsi"] if c in df_display.columns]
     all_cols = cols + extra_cols
 
     history = df_display[all_cols].to_dict(orient="records")
@@ -254,6 +258,10 @@ def api_stock_detail(symbol):
                 "volume_ratio": _safe_float(latest.get("volume_ratio")),
                 "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest and not pd.isna(latest.get("buy_signal")) else 0,
                 "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest and not pd.isna(latest.get("sell_signal")) else 0,
+                "macd": _safe_float(latest.get("macd")),
+                "macd_signal": _safe_float(latest.get("macd_signal")),
+                "macd_histogram": _safe_float(latest.get("macd_histogram")),
+                "rsi": _safe_float(latest.get("rsi")),
             },
             "history": history,
         }
@@ -359,6 +367,11 @@ def load_cached_data():
                 if "buy_signal" not in df.columns:
                     from src.signals import generate_signals
                     df = generate_signals(df)
+                # 确保有 MACD/RSI 列
+                if "macd" not in df.columns:
+                    df = calculate_macd(df)
+                if "rsi" not in df.columns:
+                    df = calculate_rsi(df)
                 data_dict[symbol] = (name_part, df)
             except Exception:
                 pass

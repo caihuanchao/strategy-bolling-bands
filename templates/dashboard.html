@@ -299,12 +299,31 @@
                     (l.volume_ratio ? '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>' : '') +
                     '</div>';
 
-                // 简易历史价格图 (Canvas)
-                html += '<canvas class="mini-chart" id="detail-chart"></canvas>';
+                // MACD + RSI 指标卡片
+                let rsiColor = '#333', rsiLabel = '';
+                if (l.rsi != null) {
+                    if (l.rsi >= 70) { rsiColor = '#dc2626'; rsiLabel = '超买'; }
+                    else if (l.rsi <= 30) { rsiColor = '#16a34a'; rsiLabel = '超卖'; }
+                    else if (l.rsi >= 50) { rsiColor = '#e74c3c'; }
+                    else { rsiColor = '#27ae60'; }
+                }
+                let macdColor = '#333';
+                if (l.macd_histogram != null) {
+                    macdColor = l.macd_histogram >= 0 ? '#dc2626' : '#16a34a';
+                }
+                html += '<h3 style="margin:16px 0 8px;color:#2c3e50;">📊 技术指标</h3>' +
+                    '<div class="detail-stats">' +
+                    '<div class="detail-stat"><div class="val" style="font-size:16px">' + (l.macd != null ? l.macd.toFixed(3) : '-') + '</div><div class="lbl">MACD</div></div>' +
+                    '<div class="detail-stat"><div class="val" style="font-size:16px">' + (l.macd_signal != null ? l.macd_signal.toFixed(3) : '-') + '</div><div class="lbl">信号线</div></div>' +
+                    '<div class="detail-stat"><div class="val" style="font-size:16px;color:' + macdColor + '">' + (l.macd_histogram != null ? l.macd_histogram.toFixed(3) : '-') + '</div><div class="lbl">MACD柱</div></div>' +
+                    '<div class="detail-stat"><div class="val" style="font-size:18px;color:' + rsiColor + '">' + (l.rsi != null ? l.rsi.toFixed(1) : '-') + '</div><div class="lbl">RSI' + (rsiLabel ? ' ' + rsiLabel : '') + '</div></div>' +
+                    '</div>';
+
+                // 双面板图表 (价格+布林带 / MACD)
+                html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
 
                 body.innerHTML = html;
 
-                // 渲染图表
                 const history = data.history || [];
                 if (history.length > 0) {
                     drawMiniChart('detail-chart', history);
@@ -321,16 +340,19 @@
             const dpr = window.devicePixelRatio || 1;
             const rect = canvas.parentElement.getBoundingClientRect();
             canvas.width = rect.width * dpr;
-            canvas.height = 300 * dpr;
+            canvas.height = 400 * dpr;
             canvas.style.width = rect.width + 'px';
-            canvas.style.height = '300px';
+            canvas.style.height = '400px';
             ctx.scale(dpr, dpr);
 
             const w = rect.width;
-            const h = 300;
+            const h = 400;
             const pad = { top: 20, right: 20, bottom: 40, left: 60 };
             const pw = w - pad.left - pad.right;
-            const ph = h - pad.top - pad.bottom;
+            // 上下面板分隔：上65% 价格，下35% MACD
+            const priceH = (h - pad.top - pad.bottom) * 0.62;
+            const macdH = (h - pad.top - pad.bottom) * 0.38;
+            const separatorY = pad.top + priceH;
 
             const closes = history.map(d => d.close);
             const maMids = history.map(d => d.ma_mid || null);
@@ -343,7 +365,7 @@
             const range = maxVal - minVal || 1;
 
             const xScale = i => pad.left + (i / (history.length - 1)) * pw;
-            const yScale = v => pad.top + ph - ((v - minVal) / range) * ph;
+            const yScale = v => pad.top + priceH - ((v - minVal) / range) * priceH;
 
             // 布林带填充
             ctx.fillStyle = 'rgba(128,128,128,0.08)';
@@ -440,6 +462,68 @@
                     ctx.arc(x, yScale(closes[i]) - 8, 4, 0, Math.PI * 2);
                     ctx.fill();
                 }
+            }
+
+            // ─── MACD 面板 ────────────────────────────────────
+            const macdTop = separatorY + 5;
+            const macdBot = h - pad.bottom;
+            const macdMid = macdTop + macdH / 2;
+
+            const macdVals = history.map(d => d.macd_histogram != null ? d.macd_histogram : null).filter(v => v !== null);
+            const sigVals = history.map(d => d.macd_signal != null ? d.macd_signal : null).filter(v => v !== null);
+            if (macdVals.length > 0) {
+                // 分隔线
+                ctx.strokeStyle = '#ccc';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, separatorY);
+                ctx.lineTo(w - pad.right, separatorY);
+                ctx.stroke();
+
+                const macdMin = Math.min(0, ...macdVals, ...sigVals);
+                const macdMax = Math.max(0, ...macdVals, ...sigVals);
+                const macdRange = (macdMax - macdMin) || 1;
+                const macdY = v => macdTop + macdH - ((v - macdMin) / macdRange) * macdH;
+                const barW = Math.max(1, pw / history.length * 0.6);
+
+                // 零线
+                const zeroY = macdY(0);
+                ctx.strokeStyle = '#999';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, zeroY);
+                ctx.lineTo(w - pad.right, zeroY);
+                ctx.stroke();
+
+                // MACD 柱状图
+                for (let i = 0; i < history.length; i++) {
+                    const hv = history[i].macd_histogram;
+                    if (hv == null) continue;
+                    const x = xScale(i);
+                    const barH = Math.abs(macdY(hv) - zeroY);
+                    ctx.fillStyle = hv >= 0 ? '#dc2626' : '#16a34a';
+                    ctx.fillRect(x - barW / 2, hv >= 0 ? zeroY - barH : zeroY, barW, Math.max(1, barH));
+                }
+
+                // MACD 信号线
+                ctx.strokeStyle = '#1f77b4';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                let sStarted = false;
+                for (let i = 0; i < history.length; i++) {
+                    const sv = history[i].macd_signal;
+                    if (sv == null) continue;
+                    if (!sStarted) { ctx.moveTo(xScale(i), macdY(sv)); sStarted = true; }
+                    else ctx.lineTo(xScale(i), macdY(sv));
+                }
+                ctx.stroke();
+
+                // MACD Y轴标签
+                ctx.fillStyle = '#95a5a6';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
+                ctx.fillText(macdMin.toFixed(2), pad.left - 6, macdBot - 2);
             }
         }
 
