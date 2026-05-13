@@ -36,6 +36,10 @@ _data_state = {
     "error": None,
 }
 
+# 参数实验室状态（不持久化，刷新页面即恢复默认）
+_params_lock = threading.Lock()
+_current_params = {"n": 20, "m": 2.0}
+
 
 def load_data():
     """加载数据：自选股 → 获取行情 → 计算布林带 → 扫描信号"""
@@ -214,6 +218,97 @@ def api_stocks():
     return jsonify(_sanitize_json({"stocks": stocks_list, "meta": meta}))
 
 
+@app.route("/api/params")
+def api_params():
+    with _data_lock:
+        data_dict_snap = dict(_data_state["data_dict"])
+        loading = _data_state["loading"]
+
+    with _params_lock:
+        current = dict(_current_params)
+
+    market_snapshot = _compute_market_snapshot(data_dict_snap) if not loading and data_dict_snap else {
+        "avg_bandwidth": 0, "avg_std": 0, "volatility_trend": "数据未就绪"
+    }
+
+    presets = [
+        {"id": "trend", "label": "趋势跟踪", "n": 20, "m": 2.0, "desc": "标准参数，适合趋势行情"},
+        {"id": "oscillating", "label": "震荡市", "n": 10, "m": 1.5, "desc": "短周期窄带，适合震荡行情"},
+        {"id": "high_vol", "label": "高波动", "n": 30, "m": 2.5, "desc": "长周期宽带，适合高波动行情"},
+        {"id": "tight", "label": "收紧", "n": 15, "m": 1.8, "desc": "中短周期，提前捕捉变盘"},
+    ]
+
+    return jsonify(_sanitize_json({
+        "current_params": current,
+        "presets": presets,
+        "market_snapshot": market_snapshot,
+        "loading": loading,
+    }))
+
+
+@app.route("/api/params/preview", methods=["POST"])
+def api_params_preview():
+    import pandas as pd
+
+    body = request.get_json(silent=True) or {}
+    try:
+        n = int(body.get("n", 20))
+        m = float(body.get("m", 2.0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "n 和 m 必须是数字"}), 400
+
+    if not (5 <= n <= 50) or not (1.0 <= m <= 3.0):
+        return jsonify({"error": "n 范围 5-50，m 范围 1.0-3.0"}), 400
+
+    with _data_lock:
+        data_dict = _data_state["data_dict"]
+        loading = _data_state["loading"]
+        current_buy = _data_state["buy_count"]
+        current_sell = _data_state["sell_count"]
+
+    if loading or not data_dict:
+        return jsonify({"error": "数据未就绪"}), 400
+
+    from src.bollinger import calculate_bollinger
+    from src.signals import generate_signals, scan_all_signals
+
+    preview_dict = {}
+    for symbol, (name, df) in data_dict.items():
+        df_p = df.copy()
+        df_p = calculate_bollinger(df_p, n=n, m=m)
+        df_p = generate_signals(df_p)
+        preview_dict[symbol] = (name, df_p)
+
+    preview_signals = scan_all_signals(preview_dict)
+    preview_buy = sum(1 for s in preview_signals if s.signal_type == "BUY")
+    preview_sell = sum(1 for s in preview_signals if s.signal_type == "SELL")
+
+    return jsonify(_sanitize_json({
+        "current": {"buy": current_buy, "sell": current_sell},
+        "preview": {"buy": preview_buy, "sell": preview_sell},
+    }))
+
+
+@app.route("/api/params", methods=["POST"])
+def api_params_apply():
+    body = request.get_json(silent=True) or {}
+    try:
+        n = int(body.get("n", 20))
+        m = float(body.get("m", 2.0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "n 和 m 必须是数字"}), 400
+
+    if not (5 <= n <= 50) or not (1.0 <= m <= 3.0):
+        return jsonify({"error": "n 范围 5-50，m 范围 1.0-3.0"}), 400
+
+    with _params_lock:
+        _current_params["n"] = n
+        _current_params["m"] = m
+
+    threading.Thread(target=_background_param_recalc, args=(n, m), daemon=True).start()
+    return jsonify({"success": True, "loading": True})
+
+
 @app.route("/api/stock/<symbol>")
 def api_stock_detail(symbol):
     with _data_lock:
@@ -297,6 +392,11 @@ def api_stock_detail(symbol):
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     try:
+        # 重置参数实验室参数为默认值
+        config = get_config()
+        with _params_lock:
+            _current_params["n"] = config.bollinger_n
+            _current_params["m"] = config.bollinger_m
         with _data_lock:
             _data_state["loading"] = True
         load_data()
@@ -355,6 +455,111 @@ def _boll_position(close, boll_up, boll_mid, boll_down):
     if close >= boll_mid:
         return "中上区间"
     return "中下区间"
+
+
+def _compute_market_snapshot(data_dict):
+    """计算全市场特征速览：平均带宽、平均波动率、波动率趋势"""
+    import math
+
+    if not data_dict:
+        return {"avg_bandwidth": 0, "avg_std": 0, "volatility_trend": "数据未就绪"}
+
+    bandwidths = []
+    stds_recent = []
+    stds_older = []
+
+    for _symbol, (_name, df) in data_dict.items():
+        if len(df) < 2:
+            continue
+        latest = df.iloc[-1]
+        b_up = _safe_float(latest.get("boll_up"))
+        b_mid = _safe_float(latest.get("ma_mid"))
+        b_down = _safe_float(latest.get("boll_down"))
+
+        if b_up is not None and b_mid is not None and b_down is not None and b_mid > 0:
+            bandwidth = (b_up - b_down) / b_mid
+            if not math.isnan(bandwidth) and not math.isinf(bandwidth):
+                bandwidths.append(bandwidth)
+
+        if "std" in df.columns:
+            std_col = df["std"].dropna()
+            if len(std_col) >= 5:
+                stds_recent.append(float(std_col.iloc[-5:].mean()))
+                stds_older.append(float(std_col.iloc[-20:-5].mean()) if len(std_col) >= 20 else float(std_col.iloc[-5:].mean()))
+
+    avg_bandwidth = round(sum(bandwidths) / len(bandwidths), 4) if bandwidths else 0
+    avg_std = round(sum(s[0] for s in [stds_recent] if s) / len(stds_recent), 3) if stds_recent else 0
+
+    if stds_recent and stds_older:
+        recent_avg = sum(stds_recent) / len(stds_recent)
+        older_avg = sum(stds_older) / len(stds_older)
+        if older_avg > 0:
+            change = (recent_avg - older_avg) / older_avg
+            if change > 0.05:
+                volatility_trend = "上升 ↑"
+            elif change < -0.05:
+                volatility_trend = "下降 ↓"
+            else:
+                volatility_trend = "平稳"
+        else:
+            volatility_trend = "平稳"
+    else:
+        volatility_trend = "数据不足"
+
+    return {
+        "avg_bandwidth": avg_bandwidth,
+        "avg_std": avg_std,
+        "volatility_trend": volatility_trend,
+    }
+
+
+def _background_param_recalc(n, m):
+    """后台线程：用新参数重算布林带和信号，更新 _data_state"""
+    global _data_state
+
+    with _data_lock:
+        data_dict_snap = dict(_data_state["data_dict"])
+        _data_state["loading"] = True
+
+    if not data_dict_snap:
+        with _data_lock:
+            _data_state["loading"] = False
+            _data_state["error"] = "无数据可供重算"
+        return
+
+    try:
+        from src.bollinger import calculate_bollinger
+        from src.signals import generate_signals, scan_all_signals
+
+        new_data_dict = {}
+        for symbol, (name, df) in data_dict_snap.items():
+            df_r = df.copy()
+            df_r = calculate_bollinger(df_r, n=n, m=m)
+            df_r = generate_signals(df_r)
+            df_r = calculate_macd(df_r, fast=get_config().macd_fast, slow=get_config().macd_slow, signal=get_config().macd_signal)
+            df_r = calculate_rsi(df_r, period=get_config().rsi_period)
+            new_data_dict[symbol] = (name, df_r)
+
+        signals = scan_all_signals(new_data_dict)
+        buy_count = sum(1 for s in signals if s.signal_type == "BUY")
+        sell_count = sum(1 for s in signals if s.signal_type == "SELL")
+        enhanced_count = sum(1 for s in signals if s.is_enhanced)
+        scan_time = datetime.now()
+
+        with _data_lock:
+            _data_state["signals"] = signals
+            _data_state["data_dict"] = new_data_dict
+            _data_state["buy_count"] = buy_count
+            _data_state["sell_count"] = sell_count
+            _data_state["enhanced_count"] = enhanced_count
+            _data_state["total_stocks"] = len(new_data_dict)
+            _data_state["scan_time"] = scan_time.isoformat()
+            _data_state["loading"] = False
+            _data_state["error"] = None
+    except Exception as e:
+        with _data_lock:
+            _data_state["loading"] = False
+            _data_state["error"] = str(e)
 
 
 def load_cached_data():

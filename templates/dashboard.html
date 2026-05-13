@@ -70,6 +70,26 @@
         .interp-summary { font-size: 14px; font-weight: 600; color: #2c3e50; margin: 10px 0; padding: 10px 14px; background: rgba(102,126,234,0.08); border-radius: 6px; border-left: 3px solid #667eea; }
         .interp-checklist { margin: 8px 0 4px; padding-left: 20px; }
         .interp-checklist li { font-size: 13px; line-height: 1.6; color: #555; margin-bottom: 3px; }
+
+        /* Parameter Lab */
+        .preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .preset-btn { background: white; border: 2px solid #e8e8e8; border-radius: 10px; padding: 14px; cursor: pointer; text-align: left; transition: all 0.2s; }
+        .preset-btn:hover { border-color: #667eea; box-shadow: 0 2px 8px rgba(102,126,234,0.15); }
+        .preset-btn.active { border-color: #667eea; border-left: 4px solid #667eea; background: rgba(102,126,234,0.04); }
+        .preset-name { font-size: 15px; font-weight: 600; color: #2c3e50; margin-bottom: 4px; }
+        .preset-params { font-size: 13px; color: #667eea; font-weight: 600; margin-bottom: 4px; }
+        .preset-desc { font-size: 12px; color: #95a5a6; line-height: 1.4; }
+        .slider-group { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .slider-row { margin-bottom: 20px; }
+        .slider-row:last-child { margin-bottom: 0; }
+        .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; color: #2c3e50; }
+        .slider-value { background: #667eea; color: white; padding: 2px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+        .slider-row input[type="range"] { width: 100%; height: 6px; -webkit-appearance: none; background: #e8e8e8; border-radius: 3px; outline: none; }
+        .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: #667eea; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(102,126,234,0.3); }
+        .slider-range { display: flex; justify-content: space-between; font-size: 11px; color: #95a5a6; margin-top: 4px; }
+        .diff-banner { padding: 12px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; margin-top: 12px; }
+        .diff-banner.changed { background: #fef3c7; color: #92400e; }
+        .diff-banner.unchanged { background: #f0fdf4; color: #166534; }
     </style>
 </head>
 <body>
@@ -95,6 +115,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('signals')">今日信号</button>
             <button class="tab" onclick="switchTab('all')">全部概览</button>
+            <button class="tab" onclick="switchTab('params')">参数实验室</button>
         </div>
 
         <!-- Tab 1: 今日信号 -->
@@ -111,6 +132,63 @@
             </div>
             <div class="loading-spinner" id="overview-loading">加载中...</div>
             <div id="overview-content"></div>
+        </div>
+
+        <!-- Tab 3: 参数实验室 -->
+        <div id="tab-params" class="tab-content">
+            <div class="loading-spinner" id="paramlab-loading">加载中...</div>
+            <div id="paramlab-content" style="display:none">
+                <!-- A. 市场特征速览 -->
+                <h2 style="margin:20px 0 12px;color:#2c3e50;">当前市场特征速览</h2>
+                <div class="stats" id="snapshot-stats">
+                    <div class="stat-card"><div class="stat-value" id="snap-bandwidth">-</div><div class="stat-label">平均带宽</div></div>
+                    <div class="stat-card"><div class="stat-value" id="snap-std">-</div><div class="stat-label">平均标准差</div></div>
+                    <div class="stat-card"><div class="stat-value" id="snap-trend">-</div><div class="stat-label">波动率趋势</div></div>
+                </div>
+
+                <!-- B. 预设模板 -->
+                <h2 style="margin:24px 0 12px;color:#2c3e50;">参数预设</h2>
+                <div class="preset-grid" id="preset-grid"></div>
+
+                <!-- C. 手动滑块 -->
+                <h2 style="margin:24px 0 12px;color:#2c3e50;">手动调节</h2>
+                <div class="slider-group">
+                    <div class="slider-row">
+                        <div class="slider-label">
+                            <span>N (周期)</span>
+                            <span class="slider-value" id="n-value">20</span>
+                        </div>
+                        <input type="range" id="slider-n" min="5" max="50" step="1" value="20" oninput="onSliderChange()">
+                        <div class="slider-range">5 — 50</div>
+                    </div>
+                    <div class="slider-row">
+                        <div class="slider-label">
+                            <span>M (倍数)</span>
+                            <span class="slider-value" id="m-value">2.0</span>
+                        </div>
+                        <input type="range" id="slider-m" min="1.0" max="3.0" step="0.1" value="2.0" oninput="onSliderChange()">
+                        <div class="slider-range">1.0 — 3.0</div>
+                    </div>
+                </div>
+
+                <!-- D. 信号对比 -->
+                <h2 style="margin:24px 0 12px;color:#2c3e50;">信号变化对比</h2>
+                <div class="stats" id="comparison-stats">
+                    <div class="stat-card"><div class="stat-value buy" id="comp-current-buy">-</div><div class="stat-label">当前买入</div></div>
+                    <div class="stat-card"><div class="stat-value sell" id="comp-current-sell">-</div><div class="stat-label">当前卖出</div></div>
+                    <div class="stat-card"><div class="stat-value buy" id="comp-preview-buy">-</div><div class="stat-label">新参数买入</div></div>
+                    <div class="stat-card"><div class="stat-value sell" id="comp-preview-sell">-</div><div class="stat-label">新参数卖出</div></div>
+                </div>
+                <div id="diff-banner" style="display:none"></div>
+
+                <!-- E. 应用按钮 -->
+                <div style="margin-top:16px;text-align:center">
+                    <button id="apply-btn" onclick="applyParams()" style="background:#667eea;color:white;border:none;padding:14px 48px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(102,126,234,0.3);transition:all 0.2s;">
+                        应用参数
+                    </button>
+                    <p style="margin-top:8px;font-size:13px;color:#95a5a6;">点击后重新计算全量信号，其他标签页同步更新</p>
+                </div>
+            </div>
         </div>
 
         <footer><p>💡 提示：增强信号 = 有信号 + 成交量放大 > 1.5倍前20日均量</p></footer>
@@ -145,6 +223,8 @@
         }
 
         let pollTimer = null;
+        let previewDebounceTimer = null;
+        let presetData = [];
 
         async function loadAll() {
             try {
@@ -179,6 +259,12 @@
                     stocksData = stkRes;
                     renderSignals(sigRes);
                     renderOverview(stkRes);
+                    var applyBtn = document.getElementById('apply-btn');
+                    if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = '应用参数'; }
+                    if (document.getElementById('tab-params').classList.contains('active')) {
+                        updateComparison();
+                        loadParams();
+                    }
                 }
             } catch (e) {}
         }
@@ -629,6 +715,161 @@
             return html;
         }
 
+        // ─── 参数实验室 ──────────────────────────────────────────
+
+        async function loadParams() {
+            try {
+                const data = await fetchJSON('/api/params');
+                presetData = data.presets || [];
+                if (data.loading) {
+                    document.getElementById('paramlab-loading').style.display = 'block';
+                    document.getElementById('paramlab-content').style.display = 'none';
+                } else {
+                    document.getElementById('paramlab-loading').style.display = 'none';
+                    document.getElementById('paramlab-content').style.display = 'block';
+                }
+                renderMarketSnapshot(data.market_snapshot);
+                renderPresets(data.presets, data.current_params.n, data.current_params.m);
+                if (!data.loading) {
+                    document.getElementById('slider-n').value = data.current_params.n;
+                    document.getElementById('slider-m').value = data.current_params.m;
+                    updateSliderLabels();
+                }
+                updateComparison();
+            } catch (e) {}
+        }
+
+        function renderMarketSnapshot(snapshot) {
+            if (!snapshot) return;
+            document.getElementById('snap-bandwidth').textContent = snapshot.avg_bandwidth ? (snapshot.avg_bandwidth * 100).toFixed(1) + '%' : '-';
+            document.getElementById('snap-std').textContent = snapshot.avg_std ? snapshot.avg_std.toFixed(3) : '-';
+            var trend = snapshot.volatility_trend || '-';
+            var trendEl = document.getElementById('snap-trend');
+            trendEl.textContent = trend;
+            trendEl.style.color = trend.includes('上升') ? '#dc2626' : trend.includes('下降') ? '#16a34a' : '#333';
+        }
+
+        function renderPresets(presets, currentN, currentM) {
+            if (!presets) return;
+            var html = '';
+            presets.forEach(function(p) {
+                var active = (p.n === currentN && p.m === currentM) ? ' active' : '';
+                html += '<div class="preset-btn' + active + '" onclick="selectPreset(\'' + p.id + '\',' + p.n + ',' + p.m + ')">' +
+                    '<div class="preset-name">' + p.label + '</div>' +
+                    '<div class="preset-params">N=' + p.n + '  M=' + p.m.toFixed(1) + '</div>' +
+                    '<div class="preset-desc">' + p.desc + '</div>' +
+                    '</div>';
+            });
+            document.getElementById('preset-grid').innerHTML = html;
+        }
+
+        function selectPreset(id, n, m) {
+            document.getElementById('slider-n').value = n;
+            document.getElementById('slider-m').value = m;
+            updateSliderLabels();
+            var btns = document.querySelectorAll('#preset-grid .preset-btn');
+            btns.forEach(function(b) { b.classList.remove('active'); });
+            var target = document.querySelector('#preset-grid .preset-btn[onclick*="' + id + '"]');
+            if (target) target.classList.add('active');
+            debouncedPreview(n, m);
+        }
+
+        function updateSliderLabels() {
+            document.getElementById('n-value').textContent = document.getElementById('slider-n').value;
+            document.getElementById('m-value').textContent = parseFloat(document.getElementById('slider-m').value).toFixed(1);
+        }
+
+        function onSliderChange() {
+            updateSliderLabels();
+            var btns = document.querySelectorAll('#preset-grid .preset-btn');
+            btns.forEach(function(b) { b.classList.remove('active'); });
+            var n = parseInt(document.getElementById('slider-n').value);
+            var m = parseFloat(document.getElementById('slider-m').value);
+            debouncedPreview(n, m);
+        }
+
+        function debouncedPreview(n, m) {
+            clearTimeout(previewDebounceTimer);
+            previewDebounceTimer = setTimeout(function() { triggerPreview(n, m); }, 300);
+        }
+
+        async function triggerPreview(n, m) {
+            try {
+                var resp = await fetch('/api/params/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ n: n, m: m })
+                });
+                var data = await resp.json();
+                if (!data.error) {
+                    renderComparison(data.current, data.preview);
+                }
+            } catch (e) {}
+        }
+
+        function renderComparison(current, preview) {
+            document.getElementById('comp-current-buy').textContent = current ? current.buy : '-';
+            document.getElementById('comp-current-sell').textContent = current ? current.sell : '-';
+            document.getElementById('comp-preview-buy').textContent = preview ? preview.buy : '-';
+            document.getElementById('comp-preview-sell').textContent = preview ? preview.sell : '-';
+
+            var banner = document.getElementById('diff-banner');
+            if (!current || !preview) {
+                banner.style.display = 'none';
+                return;
+            }
+            var buyDiff = preview.buy - current.buy;
+            var sellDiff = preview.sell - current.sell;
+            banner.style.display = 'block';
+            if (buyDiff === 0 && sellDiff === 0) {
+                banner.className = 'diff-banner unchanged';
+                banner.textContent = '信号总数不变，当前参数与预览参数产生的信号一致';
+            } else {
+                banner.className = 'diff-banner changed';
+                var parts = [];
+                if (buyDiff !== 0) parts.push('买入 ' + (buyDiff > 0 ? '+' : '') + buyDiff);
+                if (sellDiff !== 0) parts.push('卖出 ' + (sellDiff > 0 ? '+' : '') + sellDiff);
+                banner.textContent = '信号变化：' + parts.join('，') + '（预览 vs 当前）';
+            }
+        }
+
+        function updateComparison() {
+            if (signalsData && signalsData.meta) {
+                document.getElementById('comp-current-buy').textContent = signalsData.meta.buy_count;
+                document.getElementById('comp-current-sell').textContent = signalsData.meta.sell_count;
+            }
+            document.getElementById('comp-preview-buy').textContent = '-';
+            document.getElementById('comp-preview-sell').textContent = '-';
+            document.getElementById('diff-banner').style.display = 'none';
+        }
+
+        async function applyParams() {
+            var n = parseInt(document.getElementById('slider-n').value);
+            var m = parseFloat(document.getElementById('slider-m').value);
+            var btn = document.getElementById('apply-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ 重算中...';
+            try {
+                var resp = await fetch('/api/params', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ n: n, m: m })
+                });
+                var result = await resp.json();
+                if (result.success) {
+                    pollTimer = setInterval(autoRefresh, 3000);
+                } else {
+                    alert('参数应用失败: ' + (result.error || '未知错误'));
+                    btn.disabled = false;
+                    btn.textContent = '应用参数';
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = '应用参数';
+            }
+        }
+
         function closeModal(event) {
             if (event && event.target !== document.getElementById('modal-overlay')) return;
             document.getElementById('modal-overlay').classList.remove('show');
@@ -639,6 +880,10 @@
             document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
             event.target.classList.add('active');
+            if (tabId === 'params') {
+                loadParams();
+                if (signalsData) updateComparison();
+            }
         }
 
         async function refreshData() {
@@ -650,6 +895,9 @@
                 const result = await resp.json();
                 if (result.success) {
                     await loadAll();
+                    if (document.getElementById('tab-params').classList.contains('active')) {
+                        loadParams();
+                    }
                 } else {
                     alert('刷新失败: ' + (result.error || '未知错误'));
                 }
