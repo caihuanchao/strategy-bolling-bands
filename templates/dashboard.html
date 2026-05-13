@@ -90,6 +90,10 @@
 
         <!-- Tab 2: 全部概览 -->
         <div id="tab-all" class="tab-content">
+            <div style="margin-bottom:16px">
+                <input type="text" id="overview-search" placeholder="搜索代码或名称..." oninput="filterOverview()"
+                    style="width:100%;max-width:360px;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;">
+            </div>
             <div class="loading-spinner" id="overview-loading">加载中...</div>
             <div id="overview-content"></div>
         </div>
@@ -192,13 +196,27 @@
             return `<table class="table"><thead><tr><th>代码</th><th>名称</th><th>类型</th><th>价格</th><th>量比</th><th>日期</th></tr></thead><tbody>${rows}</tbody></table>`;
         }
 
-        function renderOverview(data) {
-            const container = document.getElementById('overview-content');
-            document.getElementById('overview-loading').style.display = 'none';
+        let allStocks = [];
 
-            const stocks = data.stocks || [];
+        function renderOverview(data) {
+            document.getElementById('overview-loading').style.display = 'none';
+            allStocks = data.stocks || [];
+            document.getElementById('overview-search').value = '';
+            doRenderOverview(allStocks);
+        }
+
+        function filterOverview() {
+            const query = document.getElementById('overview-search').value.trim().toLowerCase();
+            const filtered = query
+                ? allStocks.filter(s => s.symbol.includes(query) || s.name.toLowerCase().includes(query))
+                : allStocks;
+            doRenderOverview(filtered);
+        }
+
+        function doRenderOverview(stocks) {
+            const container = document.getElementById('overview-content');
             if (stocks.length === 0) {
-                container.innerHTML = '<p class="empty">暂无数据</p>';
+                container.innerHTML = '<p class="empty">暂无匹配结果</p>';
                 return;
             }
 
