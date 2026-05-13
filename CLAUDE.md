@@ -23,7 +23,6 @@
 | 回测引擎 | `src/backtest.py` |
 | 输出模块（报告/图表） | `src/output.py` |
 | 自选股列表 | `watchlist.csv` |
-| 原始需求文档 | `idea-000333-bollinger.md` |
 
 ---
 
@@ -174,4 +173,3 @@ load_data()                     _background_param_recalc(n, m)
 
 - 面向人类开发者的完整文档：[README.md](./README.md)
 - 参数实验室设计文档：[docs/ideas/adaptive-parameter-lab.md](./docs/ideas/adaptive-parameter-lab.md)
-- 项目原始需求：[idea-000333-bollinger.md](./idea-000333-bollinger.md)
