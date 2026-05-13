@@ -17,6 +17,7 @@ from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
 from src.signals import scan_all_signals, Signal
 from src.indicators import calculate_macd, calculate_rsi
+from src.indicator_interpreter import interpret_all
 from src import cache
 
 app = Flask(__name__)
@@ -245,25 +246,50 @@ def api_stock_detail(symbol):
 
     # 最新数据
     latest = df.iloc[-1]
+    latest_sanitized = {
+        "close": _safe_float(latest.get("close")),
+        "macd": _safe_float(latest.get("macd")),
+        "macd_signal": _safe_float(latest.get("macd_signal")),
+        "macd_histogram": _safe_float(latest.get("macd_histogram")),
+        "rsi": _safe_float(latest.get("rsi")),
+        "boll_up": _safe_float(latest.get("boll_up")),
+        "boll_mid": _safe_float(latest.get("ma_mid")),
+        "boll_down": _safe_float(latest.get("boll_down")),
+    }
+
+    # 前一周期数据（用于趋势对比）
+    prev_sanitized = {}
+    if len(history) >= 2:
+        p = history[-2]
+        prev_sanitized = {
+            "macd": _safe_float(p.get("macd")),
+            "macd_signal": _safe_float(p.get("macd_signal")),
+            "macd_histogram": _safe_float(p.get("macd_histogram")),
+            "rsi": _safe_float(p.get("rsi")),
+        }
+
+    interpretation = interpret_all(latest_sanitized, prev_sanitized)
+
     return jsonify(_sanitize_json(
         {
             "symbol": symbol,
             "name": name,
             "latest": {
                 "date": str(latest.get("date", "")),
-                "close": _safe_float(latest.get("close")),
-                "boll_up": _safe_float(latest.get("boll_up")),
-                "boll_mid": _safe_float(latest.get("ma_mid")),
-                "boll_down": _safe_float(latest.get("boll_down")),
+                "close": latest_sanitized["close"],
+                "boll_up": latest_sanitized["boll_up"],
+                "boll_mid": latest_sanitized["boll_mid"],
+                "boll_down": latest_sanitized["boll_down"],
                 "volume_ratio": _safe_float(latest.get("volume_ratio")),
                 "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest and not pd.isna(latest.get("buy_signal")) else 0,
                 "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest and not pd.isna(latest.get("sell_signal")) else 0,
-                "macd": _safe_float(latest.get("macd")),
-                "macd_signal": _safe_float(latest.get("macd_signal")),
-                "macd_histogram": _safe_float(latest.get("macd_histogram")),
-                "rsi": _safe_float(latest.get("rsi")),
+                "macd": latest_sanitized["macd"],
+                "macd_signal": latest_sanitized["macd_signal"],
+                "macd_histogram": latest_sanitized["macd_histogram"],
+                "rsi": latest_sanitized["rsi"],
             },
             "history": history,
+            "interpretation": interpretation,
         }
     ))
 

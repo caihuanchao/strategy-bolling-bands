@@ -55,6 +55,21 @@
         .mini-chart { width: 100%; height: 300px; margin-top: 16px; }
         .loading-spinner { text-align: center; padding: 40px; color: #7f8c8d; }
         .error-msg { background: #fee2e2; color: #dc2626; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+
+        /* Technical Indicator Interpretation */
+        .interp-section { margin-top: 24px; }
+        .interp-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+        .interp-card.interp-macd { border-left: 4px solid #1f77b4; }
+        .interp-card.interp-bollinger { border-left: 4px solid #2ca02c; }
+        .interp-card.interp-rsi { border-left: 4px solid #ff7f0e; }
+        .interp-card h4 { font-size: 15px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
+        .interp-metrics { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .interp-metric { background: white; padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid #e8e8e8; white-space: nowrap; }
+        .interp-desc { font-size: 14px; line-height: 1.7; color: #444; margin-bottom: 6px; }
+        .interp-desc strong { color: #2c3e50; }
+        .interp-summary { font-size: 14px; font-weight: 600; color: #2c3e50; margin: 10px 0; padding: 10px 14px; background: rgba(102,126,234,0.08); border-radius: 6px; border-left: 3px solid #667eea; }
+        .interp-checklist { margin: 8px 0 4px; padding-left: 20px; }
+        .interp-checklist li { font-size: 13px; line-height: 1.6; color: #555; margin-bottom: 3px; }
     </style>
 </head>
 <body>
@@ -328,6 +343,11 @@
                 // 双面板图表 (价格+布林带 / MACD)
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
 
+                // 技术指标深度解读
+                if (data.interpretation) {
+                    html += renderInterpretation(data.interpretation);
+                }
+
                 body.innerHTML = html;
 
                 const history = data.history || [];
@@ -531,6 +551,82 @@
                 ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
                 ctx.fillText(macdMin.toFixed(2), pad.left - 6, macdBot - 2);
             }
+        }
+
+        function renderInterpretation(interp) {
+            if (!interp) return '';
+            var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
+
+            // MACD card
+            if (interp.macd && interp.macd.dif != null) {
+                html += '<div class="interp-card interp-macd">';
+                html += '<h4>MACD 指标解读</h4>';
+                html += '<div class="interp-metrics">' +
+                    '<span class="interp-metric"><strong>DIF:</strong> ' + interp.macd.dif.toFixed(3) + '</span>' +
+                    '<span class="interp-metric"><strong>DEA:</strong> ' + interp.macd.dea.toFixed(3) + '</span>' +
+                    '<span class="interp-metric"><strong>BAR:</strong> ' + interp.macd.bar.toFixed(3) + '</span>' +
+                    '<span class="interp-metric">' + (interp.macd.position_label || '') + '</span>' +
+                    '<span class="interp-metric">' + (interp.macd.cross_label || '') + '</span>' +
+                    '<span class="interp-metric">' + (interp.macd.momentum_label || '') + '</span>' +
+                    '</div>';
+                if (interp.macd.position_detail) html += '<div class="interp-desc">' + interp.macd.position_detail + '</div>';
+                if (interp.macd.cross_detail) html += '<div class="interp-desc">' + interp.macd.cross_detail + '</div>';
+                if (interp.macd.momentum_detail) html += '<div class="interp-desc">' + interp.macd.momentum_detail + '</div>';
+                html += '<div class="interp-summary">' + interp.macd.summary + '</div>';
+                if (interp.macd.checklist && interp.macd.checklist.length > 0) {
+                    html += '<ul class="interp-checklist">';
+                    interp.macd.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                    html += '</ul>';
+                }
+                html += '</div>';
+            }
+
+            // Bollinger card
+            if (interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
+                var bpos = interp.bollinger.position_label;
+                var posColor = bpos === '上轨附近' ? '#27ae60' : bpos === '下轨附近' ? '#e74c3c' : bpos === '中上区间' ? '#3498db' : '#95a5a6';
+                html += '<div class="interp-card interp-bollinger">';
+                html += '<h4>布林带解读</h4>';
+                html += '<div class="interp-metrics">' +
+                    '<span class="interp-metric" style="color:' + posColor + ';font-weight:600">' + bpos + '</span>' +
+                    (interp.bollinger.bandwidth != null ? '<span class="interp-metric">带宽: ' + interp.bollinger.bandwidth.toFixed(3) + '</span>' : '') +
+                    (interp.bollinger.percent_b != null ? '<span class="interp-metric">%B: ' + interp.bollinger.percent_b.toFixed(2) + '</span>' : '') +
+                    (interp.bollinger.bandwidth_label ? '<span class="interp-metric">' + interp.bollinger.bandwidth_label + '</span>' : '') +
+                    '</div>';
+                if (interp.bollinger.position_detail) html += '<div class="interp-desc">' + interp.bollinger.position_detail + '</div>';
+                html += '<div class="interp-summary">' + interp.bollinger.summary + '</div>';
+                if (interp.bollinger.checklist && interp.bollinger.checklist.length > 0) {
+                    html += '<ul class="interp-checklist">';
+                    interp.bollinger.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                    html += '</ul>';
+                }
+                html += '</div>';
+            }
+
+            // RSI card
+            if (interp.rsi && interp.rsi.value != null) {
+                var rsiVal = interp.rsi.value;
+                var rsiColor = rsiVal >= 70 ? '#dc2626' : rsiVal <= 30 ? '#16a34a' : rsiVal >= 50 ? '#e74c3c' : '#27ae60';
+                html += '<div class="interp-card interp-rsi">';
+                html += '<h4>RSI 指标解读</h4>';
+                html += '<div class="interp-metrics">' +
+                    '<span class="interp-metric" style="color:' + rsiColor + ';font-weight:600">RSI: ' + rsiVal.toFixed(1) + '</span>' +
+                    '<span class="interp-metric">' + (interp.rsi.zone_label || '') + '</span>' +
+                    (interp.rsi.trend_label ? '<span class="interp-metric">趋势: ' + interp.rsi.trend_label + '</span>' : '') +
+                    '</div>';
+                if (interp.rsi.zone_detail) html += '<div class="interp-desc">' + interp.rsi.zone_detail + '</div>';
+                html += '<div class="interp-summary">' + interp.rsi.summary + '</div>';
+                if (interp.rsi.checklist && interp.rsi.checklist.length > 0) {
+                    html += '<ul class="interp-checklist">';
+                    interp.rsi.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                    html += '</ul>';
+                }
+                html += '</div>';
+            }
+
+            html += '<p style="font-size:12px;color:#95a5a6;margin-top:8px;text-align:right;">* 以上解读仅基于技术指标，不构成投资建议</p>';
+            html += '</div>';
+            return html;
         }
 
         function closeModal(event) {
