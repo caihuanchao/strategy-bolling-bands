@@ -155,7 +155,7 @@ def api_signals():
     buy_signals = [_signal_to_dict(s) for s in signals if s.signal_type == "BUY"]
     sell_signals = [_signal_to_dict(s) for s in signals if s.signal_type == "SELL"]
 
-    return jsonify({"buy_signals": buy_signals, "sell_signals": sell_signals, "meta": meta})
+    return jsonify(_sanitize_json({"buy_signals": buy_signals, "sell_signals": sell_signals, "meta": meta}))
 
 
 @app.route("/api/stocks")
@@ -177,15 +177,11 @@ def api_stocks():
             continue
 
         latest = df.iloc[-1]
-        close = float(latest.get("close", 0))
-        boll_up = float(latest.get("boll_up", 0))
-        boll_mid = float(latest.get("ma_mid", 0))
-        boll_down = float(latest.get("boll_down", 0))
-        volume_ratio = (
-            float(latest["volume_ratio"])
-            if "volume_ratio" in latest and pd.notna(latest["volume_ratio"])
-            else None
-        )
+        close = _safe_float(latest.get("close")) or 0
+        boll_up = _safe_float(latest.get("boll_up")) or 0
+        boll_mid = _safe_float(latest.get("ma_mid")) or 0
+        boll_down = _safe_float(latest.get("boll_down")) or 0
+        volume_ratio = _safe_float(latest.get("volume_ratio"))
 
         # 判断布林带位置
         position = _boll_position(close, boll_up, boll_mid, boll_down)
@@ -211,7 +207,7 @@ def api_stocks():
             }
         )
 
-    return jsonify({"stocks": stocks_list, "meta": meta})
+    return jsonify(_sanitize_json({"stocks": stocks_list, "meta": meta}))
 
 
 @app.route("/api/stock/<symbol>")
@@ -245,27 +241,23 @@ def api_stock_detail(symbol):
 
     # 最新数据
     latest = df.iloc[-1]
-    return jsonify(
+    return jsonify(_sanitize_json(
         {
             "symbol": symbol,
             "name": name,
             "latest": {
                 "date": str(latest.get("date", "")),
-                "close": float(latest.get("close", 0)),
-                "boll_up": float(latest.get("boll_up", 0)),
-                "boll_mid": float(latest.get("ma_mid", 0)),
-                "boll_down": float(latest.get("boll_down", 0)),
-                "volume_ratio": (
-                    float(latest["volume_ratio"])
-                    if "volume_ratio" in latest and pd.notna(latest["volume_ratio"])
-                    else None
-                ),
-                "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest else 0,
-                "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest else 0,
+                "close": _safe_float(latest.get("close")),
+                "boll_up": _safe_float(latest.get("boll_up")),
+                "boll_mid": _safe_float(latest.get("ma_mid")),
+                "boll_down": _safe_float(latest.get("boll_down")),
+                "volume_ratio": _safe_float(latest.get("volume_ratio")),
+                "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest and not pd.isna(latest.get("buy_signal")) else 0,
+                "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest and not pd.isna(latest.get("sell_signal")) else 0,
             },
             "history": history,
         }
-    )
+    ))
 
 
 @app.route("/api/refresh", methods=["POST"])
@@ -292,6 +284,30 @@ def api_refresh():
             _data_state["loading"] = False
             _data_state["error"] = str(e)
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def _safe_float(val, default=None):
+    """将值转为 float，NaN/Inf 转为 None（JSON 兼容）"""
+    try:
+        f = float(val)
+        import math
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+
+def _sanitize_json(obj):
+    """递归清理对象中的 NaN/Inf 为 None（JSON 兼容）"""
+    import math
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
 
 
 def _boll_position(close, boll_up, boll_mid, boll_down):
