@@ -114,6 +114,11 @@
         let signalsData = null;
         let stocksData = null;
 
+        const posColors = {
+            '上轨附近': '#27ae60', '下轨附近': '#e74c3c',
+            '中上区间': '#3498db', '中下区间': '#95a5a6', '-': '#ccc'
+        };
+
         async function fetchJSON(url) {
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -196,11 +201,6 @@
                 container.innerHTML = '<p class="empty">暂无数据</p>';
                 return;
             }
-
-            const posColors = {
-                '上轨附近': '#27ae60', '下轨附近': '#e74c3c',
-                '中上区间': '#3498db', '中下区间': '#95a5a6', '-': '#ccc'
-            };
 
             let rows = stocks.map(s => {
                 const signalBadge = s.has_signal === 'BUY'
