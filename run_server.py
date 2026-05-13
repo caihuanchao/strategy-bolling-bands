@@ -66,14 +66,20 @@ def main():
         pass
 
     # 启动 Flask 应用
-    from app import app, load_data, _data_state
+    from app import app, load_cached_data, background_refresh, _data_state
+    import threading
 
-    # 启动时加载数据
-    print("\n正在加载数据...")
-    load_data()
-    print(f"✅ 数据加载完成: {_data_state['total_stocks']} 只股票")
+    # 1. 先从缓存加载（秒级）
+    print("\n正在加载缓存数据...")
+    load_cached_data()
+    print(f"✅ 缓存加载完成: {_data_state['total_stocks']} 只股票")
     if _data_state["error"]:
         print(f"⚠️  警告: {_data_state['error']}")
+
+    # 2. 启动后台刷新线程
+    refresh_thread = threading.Thread(target=background_refresh, daemon=True)
+    refresh_thread.start()
+    print("🔄 后台刷新最新数据中...")
 
     app.run(host="0.0.0.0", port=5001, debug=False)
 

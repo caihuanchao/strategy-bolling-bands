@@ -307,16 +307,107 @@ def _boll_position(close, boll_up, boll_mid, boll_down):
     return "中下区间"
 
 
+def load_cached_data():
+    """从本地缓存加载数据到内存（不访问网络，秒级完成）"""
+    global _data_state
+    config = get_config()
+    ensure_dirs()
+
+    import pandas as pd
+
+    # 加载元数据
+    meta = cache.load_metadata()
+    # 加载信号
+    signals_df = cache.load_signals()
+    # 加载布林带缓存目录
+    bollinger_dir = config.cache_bollinger_dir
+    data_dict = {}
+    signals_list = []
+
+    if os.path.isdir(bollinger_dir):
+        for fname in os.listdir(bollinger_dir):
+            if not fname.endswith(".csv"):
+                continue
+            filepath = os.path.join(bollinger_dir, fname)
+            try:
+                df = pd.read_csv(filepath)
+                # 从文件名解析 symbol: {name}_{symbol}.csv
+                base = fname[:-4]
+                parts = base.rsplit("_", 1)
+                if len(parts) == 2:
+                    name_part, symbol = parts
+                else:
+                    symbol = base
+                    name_part = symbol
+                # 确保有信号列
+                if "buy_signal" not in df.columns:
+                    from src.signals import generate_signals
+                    df = generate_signals(df)
+                data_dict[symbol] = (name_part, df)
+            except Exception:
+                pass
+
+    if signals_df is not None and len(signals_df) > 0:
+        for _, row in signals_df.iterrows():
+            s = Signal(
+                symbol=str(row.get("symbol", "")),
+                name=str(row.get("name", "")),
+                date=str(row.get("date", "")),
+                signal_type=str(row.get("signal_type", "NONE")),
+                price=float(row.get("price", 0)),
+                boll_up=float(row.get("boll_up", 0)),
+                boll_mid=float(row.get("boll_mid", 0)),
+                boll_down=float(row.get("boll_down", 0)),
+                volume_ratio=float(row["volume_ratio"]) if pd.notna(row.get("volume_ratio")) else None,
+                is_enhanced=bool(row.get("is_enhanced", False)),
+            )
+            signals_list.append(s)
+
+    buy_count = len([s for s in signals_list if s.signal_type == "BUY"])
+    sell_count = len([s for s in signals_list if s.signal_type == "SELL"])
+    enhanced_count = len([s for s in signals_list if s.is_enhanced])
+
+    with _data_lock:
+        _data_state = {
+            "signals": signals_list,
+            "data_dict": data_dict,
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+            "enhanced_count": enhanced_count,
+            "total_stocks": len(data_dict),
+            "scan_time": meta.get("scan_time") if meta else None,
+            "loading": len(data_dict) == 0,
+            "error": None,
+        }
+
+
+def background_refresh():
+    """后台线程：拉取最新数据并更新 _data_state"""
+    try:
+        load_data()
+    except Exception as e:
+        with _data_lock:
+            _data_state["loading"] = False
+            _data_state["error"] = str(e)
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("📊 布林带策略 Web 仪表盘")
     print("=" * 60)
-    print("正在加载数据...")
-    load_data()
-    print(f"✅ 数据加载完成: {_data_state['total_stocks']} 只股票")
-    print(f"   买入信号: {_data_state['buy_count']}")
-    print(f"   卖出信号: {_data_state['sell_count']}")
-    print(f"   增强信号: {_data_state['enhanced_count']}")
+
+    # 1. 先从缓存加载（秒级）
+    print("正在加载缓存数据...")
+    load_cached_data()
+    print(f"✅ 缓存加载完成: {_data_state['total_stocks']} 只股票")
+
+    # 2. 启动 Flask
     print(f"\n🌐 访问地址: http://localhost:5001")
+
+    # 3. 启动后台刷新线程
+    refresh_thread = threading.Thread(target=background_refresh, daemon=True)
+    refresh_thread.start()
+    print("🔄 后台刷新最新数据中...")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=5001, debug=True)
+
+    app.run(host="0.0.0.0", port=5001, debug=False)

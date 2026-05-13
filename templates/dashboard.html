@@ -129,6 +129,8 @@
             return resp.json();
         }
 
+        let pollTimer = null;
+
         async function loadAll() {
             try {
                 const [sigRes, stkRes] = await Promise.all([
@@ -140,10 +142,30 @@
                 updateStats(sigRes.meta);
                 renderSignals(sigRes);
                 renderOverview(stkRes);
+
+                if (sigRes.meta.loading) {
+                    document.getElementById('header-meta').textContent += ' | 🔄 正在刷新最新数据...';
+                    pollTimer = setInterval(autoRefresh, 3000);
+                }
             } catch (e) {
                 document.getElementById('error-banner').style.display = 'block';
                 document.getElementById('error-banner').textContent = '数据加载失败: ' + e.message;
             }
+        }
+
+        async function autoRefresh() {
+            try {
+                const sigRes = await fetchJSON('/api/signals');
+                updateStats(sigRes.meta);
+                if (!sigRes.meta.loading) {
+                    clearInterval(pollTimer);
+                    const stkRes = await fetchJSON('/api/stocks');
+                    signalsData = sigRes;
+                    stocksData = stkRes;
+                    renderSignals(sigRes);
+                    renderOverview(stkRes);
+                }
+            } catch (e) {}
         }
 
         function updateStats(meta) {
