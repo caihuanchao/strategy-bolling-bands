@@ -90,6 +90,26 @@
         .diff-banner { padding: 12px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; margin-top: 12px; }
         .diff-banner.changed { background: #fef3c7; color: #92400e; }
         .diff-banner.unchanged { background: #f0fdf4; color: #166534; }
+        /* 收口突破卡片 */
+        .squeeze-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 14px; border-left: 4px solid #95a5a6; }
+        .squeeze-card.squeezing { border-left-color: #f59e0b; }
+        .squeeze-card.breakout-up { border-left-color: #16a34a; }
+        .squeeze-card.breakout-down { border-left-color: #dc2626; }
+        .squeeze-card h4 { font-size: 15px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
+        .squeeze-metrics { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .squeeze-metric { background: white; padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid #e8e8e8; white-space: nowrap; }
+        .squeeze-badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
+        .squeeze-badge.confirmed { background: #dcfce7; color: #166534; }
+        .squeeze-badge.divergent { background: #fef2f2; color: #991b1b; }
+        .squeeze-badge.neutral { background: #f0fdf4; color: #78716c; }
+        .squeeze-badge.dir-up { background: #dcfce7; color: #166534; }
+        .squeeze-badge.dir-down { background: #fef2f2; color: #991b1b; }
+        .squeeze-timeline { margin-top: 10px; padding-left: 16px; border-left: 2px solid #e8e8e8; }
+        .squeeze-timeline-item { position: relative; padding: 6px 0 6px 18px; font-size: 13px; color: #555; }
+        .squeeze-timeline-item::before { content: ''; position: absolute; left: -22px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: #667eea; }
+        .squeeze-timeline-item.breakout-up::before { background: #16a34a; }
+        .squeeze-timeline-item.breakout-down::before { background: #dc2626; }
+        .squeeze-empty { font-size: 13px; color: #95a5a6; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -429,6 +449,11 @@
                 // 双面板图表 (价格+布林带 / MACD)
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
 
+                // 收口突破卡片
+                if (data.squeeze && data.squeeze.is_squeeze !== undefined) {
+                    html += renderSqueezeCard(data.squeeze);
+                }
+
                 // 技术指标深度解读
                 if (data.interpretation) {
                     html += renderInterpretation(data.interpretation);
@@ -711,6 +736,73 @@
             }
 
             html += '<p style="font-size:12px;color:#95a5a6;margin-top:8px;text-align:right;">* 以上解读仅基于技术指标，不构成投资建议</p>';
+            html += '</div>';
+            return html;
+        }
+
+        function renderSqueezeCard(sq) {
+            if (!sq || sq.is_squeeze === undefined) return '';
+
+            var bwPct = (sq.bandwidth_pct * 100).toFixed(1);
+            var isSqueeze = sq.is_squeeze;
+            var direction = sq.breakout_direction;
+            var cross = sq.cross_validation || 'neutral';
+
+            // 确定卡片样式
+            var cardClass = 'squeeze-card';
+            if (direction === 'up') cardClass += ' breakout-up';
+            else if (direction === 'down') cardClass += ' breakout-down';
+            else if (isSqueeze) cardClass += ' squeezing';
+
+            // 方向标签
+            var dirLabel = '';
+            if (direction === 'up') dirLabel = '<span class="squeeze-badge dir-up">向上突破 &#9650;</span>';
+            else if (direction === 'down') dirLabel = '<span class="squeeze-badge dir-down">向下突破 &#9660;</span>';
+
+            // 收口状态标签
+            var squeezeLabel = isSqueeze
+                ? '<span class="squeeze-metric" style="color:#f59e0b;font-weight:600">收口中</span>'
+                : '<span class="squeeze-metric">带宽正常</span>';
+
+            // 交叉验证标签
+            var crossLabel = '';
+            if (direction) {
+                if (cross === 'confirmed') crossLabel = '<span class="squeeze-badge confirmed">与信号共振 &#10003;</span>';
+                else if (cross === 'divergent') crossLabel = '<span class="squeeze-badge divergent">与信号背离 &#10007;</span>';
+                else crossLabel = '<span class="squeeze-badge neutral">无现有信号</span>';
+            }
+
+            var html = '<div class="' + cardClass + '">';
+            html += '<h4>布林带收口突破</h4>';
+            html += '<div class="squeeze-metrics">';
+            html += '<span class="squeeze-metric"><strong>带宽:</strong> ' + bwPct + '%</span>';
+            html += squeezeLabel;
+            if (dirLabel) html += dirLabel;
+            if (crossLabel) html += crossLabel;
+            html += '</div>';
+
+            // 历史事件时间线
+            var history = sq.history || [];
+            if (history.length > 0) {
+                html += '<div class="squeeze-timeline">';
+                var showCount = Math.min(history.length, 5);
+                for (var i = 0; i < showCount; i++) {
+                    var evt = history[i];
+                    var evtClass = 'squeeze-timeline-item';
+                    if (evt.direction === 'up') evtClass += ' breakout-up';
+                    else if (evt.direction === 'down') evtClass += ' breakout-down';
+                    var dirText = evt.direction === 'up' ? '向上突破' : '向下突破';
+                    html += '<div class="' + evtClass + '">';
+                    html += '<strong>' + evt.date + '</strong> ' + dirText;
+                    html += ' <span style="color:#95a5a6">量比 ' + (evt.volume_ratio || 0).toFixed(1) + 'x</span>';
+                    html += ' <span style="color:#95a5a6">带宽 ' + (evt.bandwidth_pct * 100).toFixed(1) + '%</span>';
+                    html += '</div>';
+                }
+                html += '</div>';
+            } else {
+                html += '<div class="squeeze-empty">暂无历史突破事件</div>';
+            }
+
             html += '</div>';
             return html;
         }

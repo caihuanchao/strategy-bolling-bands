@@ -18,6 +18,7 @@ from src.bollinger import calculate_bollinger
 from src.signals import scan_all_signals, Signal
 from src.indicators import calculate_macd, calculate_rsi
 from src.indicator_interpreter import interpret_all
+from src.squeeze import detect_squeeze_breakout, scan_squeeze_history, check_cross_validation
 from src import cache
 
 app = Flask(__name__)
@@ -365,6 +366,22 @@ def api_stock_detail(symbol):
 
     interpretation = interpret_all(latest_sanitized, prev_sanitized)
 
+    # 收口突破检测
+    df_squeeze = detect_squeeze_breakout(df)
+    latest_sq = df_squeeze.iloc[-1]
+    squeeze_data = {
+        "is_squeeze": bool(latest_sq.get("is_squeeze", False)),
+        "bandwidth_pct": _safe_float(latest_sq.get("band_width_pct")),
+        "breakout_direction": latest_sq.get("breakout_direction") or None,
+        "cross_validation": "neutral",
+        "history": [],
+    }
+    if squeeze_data["breakout_direction"]:
+        squeeze_data["cross_validation"] = check_cross_validation(
+            squeeze_data["breakout_direction"], latest_sq
+        )
+    squeeze_data["history"] = scan_squeeze_history(df)
+
     return jsonify(_sanitize_json(
         {
             "symbol": symbol,
@@ -385,6 +402,7 @@ def api_stock_detail(symbol):
             },
             "history": history,
             "interpretation": interpretation,
+            "squeeze": squeeze_data,
         }
     ))
 
