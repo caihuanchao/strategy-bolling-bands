@@ -245,6 +245,8 @@
         let pollTimer = null;
         let previewDebounceTimer = null;
         let presetData = [];
+        let detailChartHistory = null;
+        let detailChartClicked = null;
 
         async function loadAll() {
             try {
@@ -390,6 +392,7 @@
         }
 
         async function showStockDetail(symbol) {
+            detailChartClicked = null;
             const overlay = document.getElementById('modal-overlay');
             const body = document.getElementById('modal-body');
             overlay.classList.add('show');
@@ -473,6 +476,7 @@
         function drawMiniChart(canvasId, history) {
             const canvas = document.getElementById(canvasId);
             if (!canvas) return;
+            detailChartHistory = history;
             const ctx = canvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
             const rect = canvas.parentElement.getBoundingClientRect();
@@ -662,6 +666,110 @@
                 ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
                 ctx.fillText(macdMin.toFixed(2), pad.left - 6, macdBot - 2);
             }
+
+            // x 轴日期标签
+            ctx.fillStyle = '#95a5a6';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            const labelCount = Math.min(6, history.length);
+            for (let i = 0; i < labelCount; i++) {
+                const idx = Math.round((i / (labelCount - 1 || 1)) * (history.length - 1));
+                const x = xScale(idx);
+                const ds = history[idx].date || '';
+                ctx.fillText(ds, x, h - pad.bottom + 15);
+            }
+
+            // 点击交互：十字线 + tooltip
+            if (detailChartClicked !== null && detailChartClicked < history.length) {
+                const ci = detailChartClicked;
+                const cx = xScale(ci);
+                const pt = history[ci];
+
+                // 垂直十字线
+                ctx.strokeStyle = 'rgba(102,126,234,0.5)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath();
+                ctx.moveTo(cx, pad.top);
+                ctx.lineTo(cx, h - pad.bottom);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // 水平价格线
+                if (pt.close != null) {
+                    const cy = yScale(pt.close);
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, cy);
+                    ctx.lineTo(w - pad.right, cy);
+                    ctx.stroke();
+
+                    // 数据点圆点
+                    ctx.fillStyle = '#667eea';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // tooltip 背景框
+                const isRight = cx < w / 2;
+                const tx = isRight ? cx + 14 : cx - 14;
+                const ttW = 170, ttH = 86;
+                const ty = pad.top + 10;
+                const bx = isRight ? tx : tx - ttW;
+
+                ctx.fillStyle = 'rgba(44,62,80,0.92)';
+                ctx.beginPath();
+                ctx.roundRect(bx, ty, ttW, ttH, 6);
+                ctx.fill();
+
+                // tooltip 文字
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = isRight ? 'left' : 'right';
+                const txtX = isRight ? bx + 10 : bx + ttW - 10;
+                ctx.fillText(pt.date || '', txtX, ty + 20);
+
+                ctx.font = '11px sans-serif';
+                const ohlcv = [
+                    '开 ' + (pt.open != null ? pt.open.toFixed(2) : '-'),
+                    '高 ' + (pt.high != null ? pt.high.toFixed(2) : '-'),
+                    '低 ' + (pt.low != null ? pt.low.toFixed(2) : '-'),
+                    '收 ' + (pt.close != null ? pt.close.toFixed(2) : '-'),
+                    '量 ' + (pt.volume != null ? (pt.volume / 10000).toFixed(1) + '万' : '-')
+                ];
+                ohlcv.forEach(function(t, j) {
+                    ctx.fillText(t, txtX, ty + 38 + j * 16);
+                });
+            }
+
+            // 点击事件：查找最近数据点并显示 tooltip
+            canvas.onclick = function(e) {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                // 只在价格面板区域响应
+                if (my < pad.top || my > pad.top + priceH) {
+                    detailChartClicked = null;
+                    drawMiniChart(canvasId, history);
+                    return;
+                }
+                // 找最近的 x 索引
+                let nearestIdx = 0, nearestDist = Infinity;
+                for (let i = 0; i < history.length; i++) {
+                    const dx = Math.abs(xScale(i) - mx);
+                    if (dx < nearestDist) { nearestDist = dx; nearestIdx = i; }
+                }
+                // toggle: 再次点击同一位置取消
+                if (detailChartClicked === nearestIdx) {
+                    detailChartClicked = null;
+                } else {
+                    detailChartClicked = nearestIdx;
+                }
+                drawMiniChart(canvasId, history);
+            };
         }
 
         function renderInterpretation(interp) {
