@@ -57,6 +57,13 @@
         .detail-stat .val { font-size: 22px; font-weight: bold; color: #2c3e50; }
         .detail-stat .lbl { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
         .mini-chart { width: 100%; height: 300px; margin-top: 16px; }
+        .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px;
+            margin-top: 10px; padding: 8px 12px; background: #f8f9fa; border-radius: 8px;
+            font-size: 11px; color: #555; }
+        .chart-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .chart-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .chart-legend-line { width: 16px; height: 2px; flex-shrink: 0; border-radius: 1px; }
+        .chart-legend-dash { width: 16px; height: 0; flex-shrink: 0; border-top: 2px dashed; }
         .loading-spinner { text-align: center; padding: 40px; color: #7f8c8d; }
         .error-msg { background: #fee2e2; color: #dc2626; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
 
@@ -609,6 +616,7 @@
 
                 // 双面板图表 (价格+布林带 / MACD)
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
+                html += '<div class="chart-legend" id="detail-chart-legend"></div>';
 
                 // 收口突破卡片（仅布林带策略）
                 if (!isDualMA && !isVolumeAnalysis && data.squeeze && data.squeeze.is_squeeze !== undefined) {
@@ -624,6 +632,7 @@
 
                 if (histArr.length > 0) {
                     drawMiniChart('detail-chart', histArr);
+                    updateChartLegend(currentStrategyId);
                 }
             } catch (e) {
                 body.innerHTML = '<div class="error-msg">加载失败: ' + e.message + '</div>';
@@ -636,14 +645,12 @@
             detailChartHistory = history;
             const ctx = canvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.parentElement.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = 400 * dpr;
-            canvas.style.width = rect.width + 'px';
+            canvas.style.width = '100%';
             canvas.style.height = '400px';
+            const w = canvas.clientWidth;
+            canvas.width = w * dpr;
+            canvas.height = 400 * dpr;
             ctx.scale(dpr, dpr);
-
-            const w = rect.width;
             const h = 400;
             const pad = { top: 20, right: 20, bottom: 40, left: 60 };
             const pw = w - pad.left - pad.right;
@@ -1020,6 +1027,57 @@
                 }
                 drawMiniChart(canvasId, history);
             };
+        }
+
+        function updateChartLegend(strategyId) {
+            var el = document.getElementById('detail-chart-legend');
+            if (!el) return;
+            var items = [];
+            if (strategyId === 'bollinger') {
+                items = [
+                    { type: 'line', color: '#1f77b4', label: '收盘价' },
+                    { type: 'line', color: '#2ca02c', label: '布林上轨' },
+                    { type: 'dash', color: '#ff7f0e', label: '布林中轨(MA)' },
+                    { type: 'line', color: '#d62728', label: '布林下轨' },
+                    { type: 'dot', color: '#e74c3c', label: '买入' },
+                    { type: 'dot', color: '#27ae60', label: '卖出' },
+                    { type: 'macd', label: 'MACD' }
+                ];
+            } else if (strategyId === 'dual_ma') {
+                items = [
+                    { type: 'line', color: '#1f77b4', label: '收盘价' },
+                    { type: 'line', color: '#ff7f0e', label: '快线(EMA)' },
+                    { type: 'dash', color: '#2ca02c', label: '慢线(EMA)' },
+                    { type: 'dot', color: '#e74c3c', label: '买入' },
+                    { type: 'dot', color: '#27ae60', label: '卖出' },
+                    { type: 'macd', label: 'MACD' }
+                ];
+            } else if (strategyId === 'volume_analysis') {
+                items = [
+                    { type: 'line', color: '#1f77b4', label: '收盘价' },
+                    { type: 'line', color: '#8e44ad', label: 'OBV能量潮' },
+                    { type: 'dot', color: '#e74c3c', label: '买入' },
+                    { type: 'dot', color: '#27ae60', label: '卖出' }
+                ];
+            }
+            var html = '';
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                var indicator = '';
+                if (it.type === 'dot') {
+                    indicator = '<span class="chart-legend-dot" style="background:' + it.color + '"></span>';
+                } else if (it.type === 'dash') {
+                    indicator = '<span class="chart-legend-dash" style="border-top-color:' + it.color + '"></span>';
+                } else if (it.type === 'line') {
+                    indicator = '<span class="chart-legend-line" style="background:' + it.color + '"></span>';
+                } else if (it.type === 'macd') {
+                    indicator = '<span style="display:inline-flex;gap:1px;vertical-align:middle">' +
+                        '<span style="width:4px;height:10px;background:#dc2626;border-radius:1px"></span>' +
+                        '<span style="width:4px;height:6px;background:#16a34a;border-radius:1px"></span></span>';
+                }
+                html += '<span class="chart-legend-item">' + indicator + ' ' + it.label + '</span>';
+            }
+            el.innerHTML = html;
         }
 
         function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp) {
