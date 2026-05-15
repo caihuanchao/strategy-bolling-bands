@@ -248,6 +248,7 @@
         const strategyLabels = {
             'bollinger': { buy: '买入信号 (触及下轨)', sell: '卖出信号 (触及上轨)', enhanced: '增强信号 (>1.5x 量)' },
             'dual_ma': { buy: '买入信号 (金叉)', sell: '卖出信号 (死叉)', enhanced: '增强信号 (>1.2x 量)' },
+            'volume_analysis': { buy: '买入信号 (量价确认)', sell: '卖出信号 (量价背离)', enhanced: '增强信号 (≥2条件共振)' },
         };
 
         const posColors = {
@@ -449,9 +450,12 @@
             }
 
             var isDualMA = currentStrategyId === 'dual_ma';
+            var isVolumeAnalysis = currentStrategyId === 'volume_analysis';
             var headerHtml = '<tr><th>代码</th><th>名称</th><th>现价</th>';
             if (isDualMA) {
                 headerHtml += '<th>快线(EMA)</th><th>慢线(EMA)</th><th>趋势</th>';
+            } else if (isVolumeAnalysis) {
+                headerHtml += '<th>量比</th><th>共振条件</th><th>形态</th>';
             } else {
                 headerHtml += '<th>中轨</th><th>上轨</th><th>下轨</th><th>位置</th>';
             }
@@ -473,6 +477,16 @@
                     var trend = s.trend || '-';
                     var trendColor = trend.includes('多头') ? '#16a34a' : trend.includes('空头') ? '#dc2626' : '#333';
                     rowHtml += '<td>¥' + ef + '</td><td>¥' + es + '</td><td style="color:' + trendColor + ';font-weight:600">' + trend + '</td>';
+                } else if (isVolumeAnalysis) {
+                    var vr = s.volume_ratio ? s.volume_ratio.toFixed(1) + 'x' : '-';
+                    var vrColor = s.volume_ratio >= 2.0 ? '#dc2626' : s.volume_ratio >= 1.5 ? '#e67e22' : '#333';
+                    var cm = s.conditions_met || 0;
+                    var cmColor = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : '#999';
+                    var pl = s.pattern_label || '-';
+                    var plColor = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : '#333';
+                    rowHtml += '<td style="color:' + vrColor + ';font-weight:600">' + vr + '</td>' +
+                        '<td style="color:' + cmColor + ';font-weight:600">' + cm + '/5</td>' +
+                        '<td style="color:' + plColor + ';font-weight:600">' + pl + '</td>';
                 } else {
                     const color = posColors[s.position] || '#ccc';
                     rowHtml += '<td>¥' + s.boll_mid.toFixed(2) + '</td><td>¥' + s.boll_up.toFixed(2) + '</td><td>¥' + s.boll_down.toFixed(2) + '</td><td style="color:' + color + '">📌 ' + s.position + '</td>';
@@ -497,6 +511,7 @@
 
                 const l = data.latest;
                 var isDualMA = data.strategy_id === 'dual_ma';
+                var isVolumeAnalysis = data.strategy_id === 'volume_analysis';
                 const histArr = data.history || [];
 
                 // 布林带位置
@@ -520,6 +535,8 @@
                     if (lastH) {
                         sigDesc = '快线(¥' + (lastH.ema_fast ? lastH.ema_fast.toFixed(2) : '-') + ') vs 慢线(¥' + (lastH.ema_slow ? lastH.ema_slow.toFixed(2) : '-') + ')';
                     }
+                } else if (isVolumeAnalysis) {
+                    sigDesc = '量比 ' + (l.volume_ratio ? l.volume_ratio.toFixed(1) + 'x' : '-') + ' | 形态: ' + (data.pattern_label || 'N/A') + ' | 共振: ' + (data.conditions_met || 0) + '/5';
                 } else {
                     sigDesc = '上轨 ¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + ' / 下轨 ¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-');
                 }
@@ -543,6 +560,16 @@
                     html += '<div class="detail-stat"><div class="val">¥' + ef + '</div><div class="lbl">快线(EMA)</div></div>' +
                         '<div class="detail-stat"><div class="val">¥' + es + '</div><div class="lbl">慢线(EMA)</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + trendClr + '">' + trendTxt + '</div><div class="lbl">趋势方向</div></div>';
+                } else if (isVolumeAnalysis) {
+                    var vr = l.volume_ratio ? l.volume_ratio.toFixed(1) + 'x' : '-';
+                    var vrClr = l.volume_ratio >= 2.0 ? '#dc2626' : l.volume_ratio >= 1.5 ? '#e67e22' : '#333';
+                    var cm = data.conditions_met || 0;
+                    var cmClr = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : '#999';
+                    var pl = data.pattern_label || 'N/A';
+                    var plClr = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : '#333';
+                    html += '<div class="detail-stat"><div class="val" style="color:' + vrClr + '">' + vr + '</div><div class="lbl">量比等级</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + cmClr + '">' + cm + '/5</div><div class="lbl">共振条件数</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + plClr + '">' + pl + '</div><div class="lbl">当前形态</div></div>';
                 } else {
                     html += '<div class="detail-stat"><div class="val">¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + '</div><div class="lbl">布林上轨</div></div>' +
                         '<div class="detail-stat"><div class="val">¥' + (l.boll_mid ? l.boll_mid.toFixed(2) : '-') + '</div><div class="lbl">布林中轨</div></div>' +
@@ -584,13 +611,13 @@
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
 
                 // 收口突破卡片（仅布林带策略）
-                if (!isDualMA && data.squeeze && data.squeeze.is_squeeze !== undefined) {
+                if (!isDualMA && !isVolumeAnalysis && data.squeeze && data.squeeze.is_squeeze !== undefined) {
                     html += renderSqueezeCard(data.squeeze);
                 }
 
                 // 技术指标深度解读
                 if (data.interpretation) {
-                    html += renderInterpretation(data.interpretation, isDualMA, data.dual_ma_interpretation);
+                    html += renderInterpretation(data.interpretation, isDualMA, isVolumeAnalysis, data.dual_ma_interpretation, data.volume_interpretation);
                 }
 
                 body.innerHTML = html;
@@ -936,7 +963,7 @@
             };
         }
 
-        function renderInterpretation(interp, isDualMA, dualMAInterp) {
+        function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp) {
             if (!interp) return '';
             var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
 
@@ -965,7 +992,7 @@
             }
 
             // Bollinger card (only for bollinger strategy)
-            if (!isDualMA && interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
+            if (!isDualMA && !isVolumeAnalysis && interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
                 var bpos = interp.bollinger.position_label;
                 var posColor = bpos === '上轨附近' ? '#27ae60' : bpos === '下轨附近' ? '#e74c3c' : bpos === '中上区间' ? '#3498db' : '#95a5a6';
                 html += '<div class="interp-card interp-bollinger">';
@@ -1122,9 +1149,68 @@
                 }
             }
 
+            // Volume Analysis interpretation cards
+            if (isVolumeAnalysis && volumeInterp && !volumeInterp.error) {
+                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">成交量策略分析</h3>';
+                html += _renderVolCard('量价关系', 'interp-macd', volumeInterp.price_volume_relation, {
+                    metrics: '<span class="interp-metric"><strong>状态:</strong> ' + (volumeInterp.price_volume_relation.status_label || '-') + '</span>' +
+                        '<span class="interp-metric"><strong>量比:</strong> ' + (volumeInterp.price_volume_relation.volume_ratio || '-') + 'x</span>' +
+                        '<span class="interp-metric"><strong>涨跌:</strong> ' + (volumeInterp.price_volume_relation.price_change_pct != null ? volumeInterp.price_volume_relation.price_change_pct + '%' : '-') + '</span>'
+                });
+                html += _renderVolCard('背离分析', 'interp-bollinger', volumeInterp.divergence, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeInterp.divergence.status_label || '-') + '</span>' +
+                        (volumeInterp.divergence.top_divergence_count ? '<span class="interp-metric" style="color:#dc2626">顶背离: ' + volumeInterp.divergence.top_divergence_count + '次</span>' : '') +
+                        (volumeInterp.divergence.bottom_divergence_count ? '<span class="interp-metric" style="color:#16a34a">底背离: ' + volumeInterp.divergence.bottom_divergence_count + '次</span>' : '')
+                });
+                html += _renderVolCard('放量突破', 'interp-rsi', volumeInterp.breakout, {
+                    metrics: '<span class="interp-metric"><strong>量比:</strong> ' + (volumeInterp.breakout.volume_ratio || '-') + 'x</span>' +
+                        '<span class="interp-metric" style="font-weight:600">' + (volumeInterp.breakout.level_label || '-') + '</span>'
+                });
+                html += _renderVolCard('缩量回调', 'interp-macd', volumeInterp.pullback, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeInterp.pullback.status_label || '-') + '</span>' +
+                        '<span class="interp-metric"><strong>量比:</strong> ' + (volumeInterp.pullback.volume_ratio || '-') + 'x</span>'
+                });
+                html += _renderVolCard('OBV 能量潮', 'interp-bollinger', volumeInterp.obv, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeInterp.obv.status_label || '-') + '</span>' +
+                        '<span class="interp-metric"><strong>趋势:</strong> ' + (volumeInterp.obv.obv_trend || '-') + '</span>' +
+                        (volumeInterp.obv.obv_at_high ? '<span class="interp-metric" style="color:#16a34a">OBV近高点</span>' : '') +
+                        (volumeInterp.obv.obv_at_low ? '<span class="interp-metric" style="color:#dc2626">OBV近低点</span>' : '')
+                });
+                html += _renderVolCard('形态识别', 'interp-macd', volumeInterp.pattern, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeInterp.pattern.status_label || '-') + '</span>' +
+                        '<span class="interp-metric"><strong>评分:</strong> ' + (volumeInterp.pattern.score_sum != null ? volumeInterp.pattern.score_sum : '-') + '</span>' +
+                        '<span class="interp-metric"><strong>涨放量:</strong> ' + (volumeInterp.pattern.up_expand_days || 0) + '天</span>' +
+                        '<span class="interp-metric"><strong>跌缩量:</strong> ' + (volumeInterp.pattern.down_shrink_days || 0) + '天</span>'
+                });
+                html += _renderVolCard('操作建议', 'interp-rsi', volumeInterp.trading_advice, {
+                    metrics: (volumeInterp.trading_advice.buy_signals && volumeInterp.trading_advice.buy_signals.length > 0 ? '<span class="interp-metric" style="color:#16a34a">买入: ' + volumeInterp.trading_advice.buy_signals.join(', ') + '</span>' : '') +
+                        (volumeInterp.trading_advice.sell_signals && volumeInterp.trading_advice.sell_signals.length > 0 ? '<span class="interp-metric" style="color:#dc2626">卖出: ' + volumeInterp.trading_advice.sell_signals.join(', ') + '</span>' : '') +
+                        '<span class="interp-metric"><strong>共振:</strong> ' + (volumeInterp.trading_advice.resonance_count || 0) + '维</span>',
+                    extra: (volumeInterp.trading_advice.exit_advice ? '<div class="interp-desc"><strong>出场：</strong>' + volumeInterp.trading_advice.exit_advice + '</div>' : '') +
+                        (volumeInterp.trading_advice.stop_loss_suggestion ? '<div class="interp-desc"><strong>止损：</strong>' + volumeInterp.trading_advice.stop_loss_suggestion + '</div>' : '')
+                });
+            }
+
             html += '<p style="font-size:12px;color:#95a5a6;margin-top:8px;text-align:right;">* 以上解读仅基于技术指标，不构成投资建议</p>';
             html += '</div>';
             return html;
+        }
+
+        function _renderVolCard(title, cssClass, data, opts) {
+            if (!data || (!data.summary && !data.detail)) return '';
+            var card = '<div class="interp-card ' + cssClass + '">';
+            card += '<h4>' + title + '</h4>';
+            if (opts.metrics) card += '<div class="interp-metrics">' + opts.metrics + '</div>';
+            if (data.detail) card += '<div class="interp-desc">' + data.detail + '</div>';
+            if (data.summary) card += '<div class="interp-summary">' + data.summary + '</div>';
+            if (opts.extra) card += opts.extra;
+            if (data.checklist && data.checklist.length > 0) {
+                card += '<ul class="interp-checklist">';
+                data.checklist.forEach(function(item) { card += '<li>' + item + '</li>'; });
+                card += '</ul>';
+            }
+            card += '</div>';
+            return card;
         }
 
         function renderSqueezeCard(sq) {

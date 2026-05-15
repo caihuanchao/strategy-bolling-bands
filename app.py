@@ -26,6 +26,8 @@ from src.strategies import StrategyRegistry
 from src.strategies.bollinger import BollingerStrategy
 from src.strategies.dual_ma import DualMAStrategy
 from src.strategies.dual_ma_interpreter import interpret_dual_ma_all
+from src.strategies.volume import VolumeAnalysisStrategy
+from src.strategies.volume_interpreter import interpret_volume_all
 
 app = Flask(__name__)
 
@@ -33,6 +35,7 @@ app = Flask(__name__)
 _registry = StrategyRegistry()
 _registry.register(BollingerStrategy())
 _registry.register(DualMAStrategy())
+_registry.register(VolumeAnalysisStrategy())
 
 # 全局数据状态
 _data_lock = threading.Lock()
@@ -256,6 +259,10 @@ def api_stocks():
             if ef is not None and es is not None and es > 0:
                 trend = "↗ 多头" if ef > es else "↘ 空头"
 
+        # 成交量分析策略专属字段
+        pattern_lbl = _pattern_label(df)
+        conditions_met = int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0
+
         stocks_list.append(
             {
                 "symbol": symbol,
@@ -271,6 +278,8 @@ def api_stocks():
                 "ema_fast": _safe_float(latest.get("ema_fast")),
                 "ema_slow": _safe_float(latest.get("ema_slow")),
                 "trend": trend,
+                "pattern_label": pattern_lbl,
+                "conditions_met": conditions_met,
             }
         )
 
@@ -476,9 +485,14 @@ def api_stock_detail(symbol):
     if current_strategy_id == "dual_ma":
         dual_ma_interpretation = interpret_dual_ma_all(df)
 
+    # 成交量分析策略专属解读
+    volume_interpretation = None
+    if current_strategy_id == "volume_analysis":
+        volume_interpretation = interpret_volume_all(df)
+
     # 收口突破检测（仅布林带策略）
     squeeze_data = None
-    if current_strategy_id != "dual_ma":
+    if current_strategy_id not in ("dual_ma", "volume_analysis"):
         df_squeeze = detect_squeeze_breakout(df)
         latest_sq = df_squeeze.iloc[-1]
         squeeze_data = {
@@ -516,6 +530,11 @@ def api_stock_detail(symbol):
         "interpretation": interpretation,
         "squeeze": squeeze_data,
         "dual_ma_interpretation": dual_ma_interpretation,
+        "volume_interpretation": volume_interpretation,
+        # 成交量策略专属字段（前端策略感知渲染用）
+        "obv": _safe_float(latest.get("obv")),
+        "conditions_met": int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0,
+        "pattern_label": _pattern_label(df),
     }
 
     return jsonify(_sanitize_json(response_data))
@@ -589,6 +608,29 @@ def _boll_position(close, boll_up, boll_mid, boll_down):
     if close >= boll_mid:
         return "中上区间"
     return "中下区间"
+
+
+def _pattern_label(df):
+    """根据 pattern_score_sum 返回形态中文标签"""
+    import pandas as pd
+    if "pattern_score_sum" not in df.columns:
+        return "N/A"
+    score = float(df["pattern_score_sum"].iloc[-1]) if len(df) > 0 else 0
+    if pd.isna(score):
+        return "N/A"
+    if score >= 3.0:
+        return "吸筹建仓"
+    if score <= -3.0:
+        return "派发出货"
+    if int(df["pattern_climax_buy"].iloc[-1] or 0) == 1 if "pattern_climax_buy" in df.columns else False:
+        return "卖出高潮"
+    if int(df["pattern_climax_sell"].iloc[-1] or 0) == 1 if "pattern_climax_sell" in df.columns else False:
+        return "买入高潮"
+    if abs(score) < 1.5:
+        return "缩量整理"
+    if score > 0:
+        return "偏向吸筹"
+    return "偏向派发"
 
 
 def _compute_market_snapshot(data_dict):
