@@ -15,6 +15,10 @@
 | 布林带计算 | `src/bollinger.py` |
 | MACD/RSI 指标计算 | `src/indicators.py` |
 | 技术指标结构化解读 | `src/indicator_interpreter.py` |
+| 双均线策略结构化解读 | `src/strategies/dual_ma_interpreter.py` |
+| 策略注册中心 | `src/strategies/__init__.py` |
+| 布林带策略实现 | `src/strategies/bollinger.py` |
+| 双均线策略实现 | `src/strategies/dual_ma.py` |
 | 信号生成和扫描 | `src/signals.py` |
 | 数据获取（多源 fallback） | `src/data_fetcher.py` |
 | 结果缓存管理 | `src/cache.py` |
@@ -48,6 +52,11 @@ strategy-bolling-bands/
 │   ├── indicators.py             # calculate_macd(), calculate_rsi()
 │   ├── indicator_interpreter.py  # interpret_all(): MACD/RSI/布林带结构化中文解读
 │   ├── signals.py                # Signal dataclass + generate_signals() + scan_all_signals()
+│   ├── strategies/               # 策略系统
+│   │   ├── __init__.py            # StrategyBase ABC + StrategyRegistry 单例
+│   │   ├── bollinger.py           # BollingerStrategy（布林带触碰）
+│   │   ├── dual_ma.py             # DualMAStrategy（双均线交叉）
+│   │   └── dual_ma_interpreter.py # interpret_dual_ma_all(): 双均线结构化中文解读
 │   ├── multi_period.py           # 多周期数据对齐和共振确认
 │   ├── cache.py                  # CSV/JSON 缓存读写 + metadata.json
 │   ├── backtest.py               # Trade/BacktestResult dataclass + 绩效指标
@@ -76,6 +85,10 @@ strategy-bolling-bands/
 | 布林带 | `src/bollinger.py` | MA20 ± M×SD 计算 | `calculate_bollinger(df, n, m)` |
 | 指标 | `src/indicators.py` | MACD(12/26/9) + RSI(14) | `calculate_macd()`, `calculate_rsi()` |
 | 指标解读 | `src/indicator_interpreter.py` | MACD/RSI/布林带结构化中文解读 | `interpret_all()`, `interpret_macd()`, `interpret_rsi()`, `interpret_bollinger()` |
+| 双均线解读 | `src/strategies/dual_ma_interpreter.py` | 双均线策略结构化中文解读（策略感知渲染） | `interpret_dual_ma_all()` → 交叉信号/趋势/可靠性/成交量/操作建议 |
+| 策略系统 | `src/strategies/__init__.py` | 策略 ABC + 注册中心（单例） | `StrategyBase`, `StrategyRegistry` |
+| 布林带策略 | `src/strategies/bollinger.py` | 布林带触碰策略实现 | `BollingerStrategy.generate_signals()`, `create_signal()` |
+| 双均线策略 | `src/strategies/dual_ma.py` | 双均线交叉策略实现（EMA 金叉/死叉） | `DualMAStrategy.generate_signals()`, `create_signal()` |
 | 信号 | `src/signals.py` | 买卖信号生成 + 成交量增强 | `Signal`, `generate_signals()`, `scan_all_signals()`, `scan_latest_signals()` |
 | 数据获取 | `src/data_fetcher.py` | 多源 fallback + 增量缓存 | `fetch_batch_data()` |
 | 缓存 | `src/cache.py` | 分层 CSV/JSON 缓存 | `load_metadata()`, `save_metadata()`, `load_signals()`, `save_signals()` |
@@ -113,15 +126,24 @@ python run_workbench.py
 | POST | `/api/params` | 提交 `{n, m}`，后台重算全量信号 |
 | POST | `/api/refresh` | 刷新数据 + 重置参数为 config 默认值 |
 
+### 策略切换 API 端点
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/strategies` | 获取所有可用策略列表 |
+| POST | `/api/strategy/switch` | 提交 `{"strategy": "dual_ma"}`, 后台重算全量信号 |
+
 ### 前端 JS 全局状态
 
 | 变量 | 类型 | 用途 |
 |------|------|------|
+| `currentStrategyId` | string | 当前活跃策略 ID (`"bollinger"` 或 `"dual_ma"`) |
+| `strategiesList` | array | `/api/strategies` 返回的策略列表缓存 |
 | `signalsData` | object | `/api/signals` 返回的完整响应 |
 | `stocksData` | object | `/api/stocks` 返回的完整响应 |
 | `pollTimer` | number | `autoRefresh` 每 3 秒轮询的定时器 ID |
 | `previewDebounceTimer` | number | 参数预览 300ms 防抖定时器 ID |
-| `presetData` | array | 4 组预设模板缓存 |
+| `presetData` | array | 策略预设模板缓存（动态按策略加载） |
 
 ### 线程安全
 
@@ -144,16 +166,20 @@ StockInfo 列表
     ↓ calculate_macd(df, ...)
     ↓ calculate_rsi(df, ...)
 含布林带 + MACD + RSI 列的 DataFrame
-    ↓ scan_all_signals()
+    ↓ _scan_with_strategy(df, strategy, params)
+    │ (strategy.generate_signals() → buy_signal, sell_signal, ema_fast, ema_slow...)
 Signal 列表 + data_dict
     ↓
 _data_state = {signals, data_dict, buy_count, sell_count, ...}
     │
     ├──→ GET /api/signals   → 前端统计面板 + 信号表格
     ├──→ GET /api/stocks    → 全部概览表格
-    ├──→ GET /api/stock/{s} → 个股详情弹窗（120 条历史 + Canvas 图表 + 指标解读）
-    ├──→ GET /api/params    → 参数实验室（预设 + 市场快照 + 滑块）
-    └──→ POST /api/params   → _background_param_recalc() → 重算 → 更新 _data_state
+    ├──→ GET /api/stock/{s} → 个股详情弹窗（120 条历史 + Canvas 图表 + 策略感知解读）
+    │                           ├── bollinger: interpret_all() + squeeze 检测
+    │                           └── dual_ma: interpret_dual_ma_all() + interpret_all() MACD/RSI
+    ├──→ GET /api/params    → 参数实验室（策略专属预设 + 市场快照 + 滑块）
+    ├──→ POST /api/params   → _background_param_recalc() → 重算 → 更新 _data_state
+    └──→ POST /api/strategy/switch → 切换策略 → _background_param_recalc() → 全量重算
 ```
 
 ### 参数实验室重算流程（与 load_data 的区别）
