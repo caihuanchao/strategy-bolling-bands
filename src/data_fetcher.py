@@ -650,8 +650,12 @@ def get_stock_data(
                         inc_start_date = (dt + timedelta(days=1)).strftime("%Y%m%d")
                     except Exception:
                         inc_start_date = start_date  # Fallback if date parsing fails
-                    # Fetch incremental data
-                    inc_df, source = _fetch_full(inc_start_date)
+                    # Fetch incremental data (fall back to cache if all sources fail)
+                    try:
+                        inc_df, source = _fetch_full(inc_start_date)
+                    except Exception as e:
+                        print(f"Incremental fetch failed ({e}), returning cached data")
+                        return cached_df
                     if len(inc_df) > 0:
                         # Merge and save
                         merged_df = merge_and_deduplicate(cached_df, inc_df)
