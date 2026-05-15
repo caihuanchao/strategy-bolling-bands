@@ -496,7 +496,7 @@
                 document.getElementById('modal-title').textContent = data.name + ' (' + data.symbol + ')';
 
                 const l = data.latest;
-                var isDualMA = currentStrategyId === 'dual_ma';
+                var isDualMA = data.strategy_id === 'dual_ma';
                 const histArr = data.history || [];
 
                 // 布林带位置
@@ -583,14 +583,14 @@
                 // 双面板图表 (价格+布林带 / MACD)
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:400px"></canvas>';
 
-                // 收口突破卡片
-                if (data.squeeze && data.squeeze.is_squeeze !== undefined) {
+                // 收口突破卡片（仅布林带策略）
+                if (!isDualMA && data.squeeze && data.squeeze.is_squeeze !== undefined) {
                     html += renderSqueezeCard(data.squeeze);
                 }
 
                 // 技术指标深度解读
                 if (data.interpretation) {
-                    html += renderInterpretation(data.interpretation);
+                    html += renderInterpretation(data.interpretation, isDualMA, data.dual_ma_interpretation);
                 }
 
                 body.innerHTML = html;
@@ -936,7 +936,7 @@
             };
         }
 
-        function renderInterpretation(interp) {
+        function renderInterpretation(interp, isDualMA, dualMAInterp) {
             if (!interp) return '';
             var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
 
@@ -964,8 +964,8 @@
                 html += '</div>';
             }
 
-            // Bollinger card
-            if (interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
+            // Bollinger card (only for bollinger strategy)
+            if (!isDualMA && interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
                 var bpos = interp.bollinger.position_label;
                 var posColor = bpos === '上轨附近' ? '#27ae60' : bpos === '下轨附近' ? '#e74c3c' : bpos === '中上区间' ? '#3498db' : '#95a5a6';
                 html += '<div class="interp-card interp-bollinger">';
@@ -1005,6 +1005,121 @@
                     html += '</ul>';
                 }
                 html += '</div>';
+            }
+
+            // Dual MA interpretation cards
+            if (isDualMA && dualMAInterp && !dualMAInterp.error) {
+                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">双均线策略分析</h3>';
+
+                // Cross signal card
+                var cs = dualMAInterp.cross_signal;
+                if (cs && cs.status_label) {
+                    var csColor = cs.status === 'golden_cross' ? '#16a34a' : cs.status === 'death_cross' ? '#dc2626' : '#95a5a6';
+                    html += '<div class="interp-card interp-macd">';
+                    html += '<h4>交叉信号</h4>';
+                    html += '<div class="interp-metrics">' +
+                        '<span class="interp-metric" style="color:' + csColor + ';font-weight:600">' + cs.status_label + '</span>' +
+                        '<span class="interp-metric">快线: ¥' + (cs.fast_value || '-') + '</span>' +
+                        '<span class="interp-metric">慢线: ¥' + (cs.slow_value || '-') + '</span>' +
+                        (cs.last_cross_label ? '<span class="interp-metric">' + cs.last_cross_label + '</span>' : '') +
+                        '</div>';
+                    if (cs.detail) html += '<div class="interp-desc">' + cs.detail + '</div>';
+                    html += '<div class="interp-summary">' + cs.summary + '</div>';
+                    if (cs.checklist && cs.checklist.length > 0) {
+                        html += '<ul class="interp-checklist">';
+                        cs.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
+
+                // Trend card
+                var td = dualMAInterp.trend;
+                if (td && td.alignment_label) {
+                    var tdColor = td.alignment === 'bullish' ? '#16a34a' : td.alignment === 'bearish' ? '#dc2626' : '#95a5a6';
+                    html += '<div class="interp-card interp-bollinger">';
+                    html += '<h4>趋势判定</h4>';
+                    html += '<div class="interp-metrics">' +
+                        '<span class="interp-metric" style="color:' + tdColor + ';font-weight:600">' + td.alignment_label + '</span>' +
+                        '<span class="interp-metric">快线方向: ' + (td.fast_direction || '-') + '</span>' +
+                        '<span class="interp-metric">慢线方向: ' + (td.slow_direction || '-') + '</span>' +
+                        '</div>';
+                    if (td.detail) html += '<div class="interp-desc">' + td.detail + '</div>';
+                    html += '<div class="interp-summary">' + td.summary + '</div>';
+                    if (td.checklist && td.checklist.length > 0) {
+                        html += '<ul class="interp-checklist">';
+                        td.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
+
+                // Reliability card
+                var rl = dualMAInterp.reliability;
+                if (rl && rl.level_label) {
+                    var rlColor = rl.level === 'strong' ? '#16a34a' : rl.level === 'standard' ? '#f59e0b' : '#dc2626';
+                    html += '<div class="interp-card interp-rsi">';
+                    html += '<h4>信号可靠性评级</h4>';
+                    html += '<div class="interp-metrics">' +
+                        '<span class="interp-metric" style="color:' + rlColor + ';font-weight:600;font-size:18px">' + rl.stars + '</span>' +
+                        '<span class="interp-metric" style="color:' + rlColor + ';font-weight:600">' + rl.level_label + '</span>' +
+                        '</div>';
+                    if (rl.detail) html += '<div class="interp-desc">' + rl.detail + '</div>';
+                    if (rl.conditions_met && rl.conditions_met.length > 0) {
+                        html += '<div class="interp-desc"><strong>已满足：</strong>' + rl.conditions_met.join('；') + '</div>';
+                    }
+                    if (rl.conditions_missing && rl.conditions_missing.length > 0) {
+                        html += '<div class="interp-desc" style="color:#95a5a6"><strong>未满足：</strong>' + rl.conditions_missing.join('；') + '</div>';
+                    }
+                    html += '<div class="interp-summary">' + rl.summary + '</div>';
+                    if (rl.checklist && rl.checklist.length > 0) {
+                        html += '<ul class="interp-checklist">';
+                        rl.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
+
+                // Volume card
+                var vol = dualMAInterp.volume;
+                if (vol && vol.level_label) {
+                    var volColor = vol.is_confirmed ? '#16a34a' : '#dc2626';
+                    html += '<div class="interp-card interp-macd">';
+                    html += '<h4>成交量分析</h4>';
+                    html += '<div class="interp-metrics">' +
+                        '<span class="interp-metric" style="color:' + volColor + ';font-weight:600">' + vol.level_label + '</span>' +
+                        '<span class="interp-metric">量比: ' + (vol.volume_ratio != null ? vol.volume_ratio.toFixed(1) + 'x' : '-') + '</span>' +
+                        (vol.volume_trend ? '<span class="interp-metric">' + vol.volume_trend + '</span>' : '') +
+                        '</div>';
+                    if (vol.detail) html += '<div class="interp-desc">' + vol.detail + '</div>';
+                    html += '<div class="interp-summary">' + vol.summary + '</div>';
+                    if (vol.checklist && vol.checklist.length > 0) {
+                        html += '<ul class="interp-checklist">';
+                        vol.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
+
+                // Trading advice card
+                var adv = dualMAInterp.trading_advice;
+                if (adv) {
+                    var advColor = adv.entry_ready ? '#16a34a' : adv.exit_ready ? '#dc2626' : '#95a5a6';
+                    html += '<div class="interp-card interp-bollinger">';
+                    html += '<h4>操作建议</h4>';
+                    html += '<div class="interp-metrics">' +
+                        (adv.entry_advice ? '<span class="interp-metric" style="color:' + advColor + ';font-weight:600">' + adv.entry_advice + '</span>' : '') +
+                        '</div>';
+                    if (adv.exit_advice) html += '<div class="interp-desc"><strong>出场：</strong>' + adv.exit_advice + '</div>';
+                    if (adv.stop_loss_suggestion) html += '<div class="interp-desc"><strong>止损：</strong>' + adv.stop_loss_suggestion + '</div>';
+                    html += '<div class="interp-summary">' + (adv.summary || '') + '</div>';
+                    if (adv.checklist && adv.checklist.length > 0) {
+                        html += '<ul class="interp-checklist">';
+                        adv.checklist.forEach(function(item) { html += '<li>' + item + '</li>'; });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
             }
 
             html += '<p style="font-size:12px;color:#95a5a6;margin-top:8px;text-align:right;">* 以上解读仅基于技术指标，不构成投资建议</p>';

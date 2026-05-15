@@ -25,6 +25,7 @@ from src import cache
 from src.strategies import StrategyRegistry
 from src.strategies.bollinger import BollingerStrategy
 from src.strategies.dual_ma import DualMAStrategy
+from src.strategies.dual_ma_interpreter import interpret_dual_ma_all
 
 app = Flask(__name__)
 
@@ -467,45 +468,57 @@ def api_stock_detail(symbol):
 
     interpretation = interpret_all(latest_sanitized, prev_sanitized)
 
-    # 收口突破检测
-    df_squeeze = detect_squeeze_breakout(df)
-    latest_sq = df_squeeze.iloc[-1]
-    squeeze_data = {
-        "is_squeeze": bool(latest_sq.get("is_squeeze", False)),
-        "bandwidth_pct": _safe_float(latest_sq.get("band_width_pct")),
-        "breakout_direction": latest_sq.get("breakout_direction") or None,
-        "cross_validation": "neutral",
-        "history": [],
-    }
-    if squeeze_data["breakout_direction"]:
-        squeeze_data["cross_validation"] = check_cross_validation(
-            squeeze_data["breakout_direction"], latest_sq
-        )
-    squeeze_data["history"] = scan_squeeze_history(df)
+    # 策略感知：当前策略 ID
+    current_strategy_id = _current_strategy_id
 
-    return jsonify(_sanitize_json(
-        {
-            "symbol": symbol,
-            "name": name,
-            "latest": {
-                "date": str(latest.get("date", "")),
-                "close": latest_sanitized["close"],
-                "boll_up": latest_sanitized["boll_up"],
-                "boll_mid": latest_sanitized["boll_mid"],
-                "boll_down": latest_sanitized["boll_down"],
-                "volume_ratio": _safe_float(latest.get("volume_ratio")),
-                "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest and not pd.isna(latest.get("buy_signal")) else 0,
-                "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest and not pd.isna(latest.get("sell_signal")) else 0,
-                "macd": latest_sanitized["macd"],
-                "macd_signal": latest_sanitized["macd_signal"],
-                "macd_histogram": latest_sanitized["macd_histogram"],
-                "rsi": latest_sanitized["rsi"],
-            },
-            "history": history,
-            "interpretation": interpretation,
-            "squeeze": squeeze_data,
+    # 双均线策略专属解读
+    dual_ma_interpretation = None
+    if current_strategy_id == "dual_ma":
+        dual_ma_interpretation = interpret_dual_ma_all(df)
+
+    # 收口突破检测（仅布林带策略）
+    squeeze_data = None
+    if current_strategy_id != "dual_ma":
+        df_squeeze = detect_squeeze_breakout(df)
+        latest_sq = df_squeeze.iloc[-1]
+        squeeze_data = {
+            "is_squeeze": bool(latest_sq.get("is_squeeze", False)),
+            "bandwidth_pct": _safe_float(latest_sq.get("band_width_pct")),
+            "breakout_direction": latest_sq.get("breakout_direction") or None,
+            "cross_validation": "neutral",
+            "history": [],
         }
-    ))
+        if squeeze_data["breakout_direction"]:
+            squeeze_data["cross_validation"] = check_cross_validation(
+                squeeze_data["breakout_direction"], latest_sq
+            )
+        squeeze_data["history"] = scan_squeeze_history(df)
+
+    response_data = {
+        "symbol": symbol,
+        "name": name,
+        "strategy_id": current_strategy_id,
+        "latest": {
+            "date": str(latest.get("date", "")),
+            "close": latest_sanitized["close"],
+            "boll_up": latest_sanitized["boll_up"],
+            "boll_mid": latest_sanitized["boll_mid"],
+            "boll_down": latest_sanitized["boll_down"],
+            "volume_ratio": _safe_float(latest.get("volume_ratio")),
+            "buy_signal": int(latest.get("buy_signal", 0)) if "buy_signal" in latest and not pd.isna(latest.get("buy_signal")) else 0,
+            "sell_signal": int(latest.get("sell_signal", 0)) if "sell_signal" in latest and not pd.isna(latest.get("sell_signal")) else 0,
+            "macd": latest_sanitized["macd"],
+            "macd_signal": latest_sanitized["macd_signal"],
+            "macd_histogram": latest_sanitized["macd_histogram"],
+            "rsi": latest_sanitized["rsi"],
+        },
+        "history": history,
+        "interpretation": interpretation,
+        "squeeze": squeeze_data,
+        "dual_ma_interpretation": dual_ma_interpretation,
+    }
+
+    return jsonify(_sanitize_json(response_data))
 
 
 @app.route("/api/refresh", methods=["POST"])
