@@ -446,7 +446,7 @@ def api_stock_detail(symbol):
     cols = ["date", "open", "high", "low", "close", "volume"]
     extra_cols = [c for c in ["ma_mid", "boll_up", "boll_down", "buy_signal", "sell_signal",
                               "macd", "macd_signal", "macd_histogram", "rsi",
-                              "ema_fast", "ema_slow"] if c in df_display.columns]
+                              "ema_fast", "ema_slow", "obv", "volume_ratio"] if c in df_display.columns]
     all_cols = cols + extra_cols
 
     history = df_display[all_cols].to_dict(orient="records")

@@ -46,3 +46,6 @@ stock_data_cache.csv
 
 # Claude Code
 .claude/
+
+# Playwright MCP
+.playwright-mcp/

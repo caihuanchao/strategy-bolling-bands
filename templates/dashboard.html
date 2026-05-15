@@ -670,7 +670,8 @@
 
             // 布林带填充 / EMA 线
             var isDualMAChart = currentStrategyId === 'dual_ma';
-            if (!isDualMAChart) {
+            var isVolumeAnalysisChart = currentStrategyId === 'volume_analysis';
+            if (!isDualMAChart && !isVolumeAnalysisChart) {
                 ctx.fillStyle = 'rgba(128,128,128,0.08)';
                 ctx.beginPath();
                 for (let i = 0; i < history.length; i++) {
@@ -729,7 +730,7 @@
                 }
                 ctx.stroke();
                 ctx.setLineDash([]);
-            } else {
+            } else if (!isVolumeAnalysisChart) {
                 // 均线
                 ctx.strokeStyle = '#ff7f0e';
                 ctx.setLineDash([4, 2]);
@@ -796,10 +797,67 @@
                 }
             }
 
-            // ─── MACD 面板 ────────────────────────────────────
-            const macdTop = separatorY + 5;
-            const macdBot = h - pad.bottom;
-            const macdMid = macdTop + macdH / 2;
+            // ─── 下方面板 (OBV / MACD) ─────────────────────────
+            const lowerTop = separatorY + 5;
+            const lowerBot = h - pad.bottom;
+            const lowerMid = lowerTop + macdH / 2;
+
+            if (isVolumeAnalysisChart) {
+                // OBV 累积线
+                const obvVals = history.map(function(d) { return d.obv != null ? d.obv : null; });
+                const obvNonNull = obvVals.filter(function(v) { return v !== null; });
+                if (obvNonNull.length > 1) {
+                    // 分隔线
+                    ctx.strokeStyle = '#ccc';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, separatorY);
+                    ctx.lineTo(w - pad.right, separatorY);
+                    ctx.stroke();
+
+                    const obvMin = Math.min.apply(null, obvNonNull);
+                    const obvMax = Math.max.apply(null, obvNonNull);
+                    const obvRange = (obvMax - obvMin) || 1;
+                    const obvY = function(v) { return lowerTop + macdH - ((v - obvMin) / obvRange) * macdH; };
+
+                    // OBV 线
+                    ctx.strokeStyle = '#8e44ad';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([]);
+                    ctx.beginPath();
+                    let oStarted = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (obvVals[i] == null) continue;
+                        if (!oStarted) { ctx.moveTo(xScale(i), obvY(obvVals[i])); oStarted = true; }
+                        else ctx.lineTo(xScale(i), obvY(obvVals[i]));
+                    }
+                    ctx.stroke();
+
+                    // OBV 填充
+                    ctx.fillStyle = 'rgba(142,68,173,0.06)';
+                    ctx.beginPath();
+                    let ofs = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (obvVals[i] == null) continue;
+                        if (!ofs) { ctx.moveTo(xScale(i), obvY(obvVals[i])); ofs = true; }
+                        else ctx.lineTo(xScale(i), obvY(obvVals[i]));
+                    }
+                    ctx.lineTo(xScale(history.length - 1), lowerBot);
+                    ctx.lineTo(xScale(0), lowerBot);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // OBV Y轴标签
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(obvMax.toFixed(0), pad.left - 6, lowerTop + 12);
+                    ctx.fillText(obvMin.toFixed(0), pad.left - 6, lowerBot - 2);
+                }
+            } else {
+                const macdTop = lowerTop;
+                const macdBot = lowerBot;
+                const macdMid = lowerMid;
 
             const macdVals = history.map(d => d.macd_histogram != null ? d.macd_histogram : null).filter(v => v !== null);
             const sigVals = history.map(d => d.macd_signal != null ? d.macd_signal : null).filter(v => v !== null);
@@ -856,6 +914,7 @@
                 ctx.textAlign = 'right';
                 ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
                 ctx.fillText(macdMin.toFixed(2), pad.left - 6, macdBot - 2);
+                }
             }
 
             // x 轴日期标签
