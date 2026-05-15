@@ -15,15 +15,25 @@ from src.config import get_config, ensure_dirs
 from src.watchlist import load_watchlist, create_sample_watchlist
 from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
-from src.signals import scan_all_signals, Signal
+from src.signals import Signal
 from src.indicators import calculate_macd, calculate_rsi
 from src.indicator_interpreter import interpret_all
 from src.squeeze import detect_squeeze_breakout, scan_squeeze_history, check_cross_validation
 from src import cache
 
+# 策略注册中心
+from src.strategies import StrategyRegistry
+from src.strategies.bollinger import BollingerStrategy
+from src.strategies.dual_ma import DualMAStrategy
+
 app = Flask(__name__)
 
-# 全局状态
+# 注册所有策略
+_registry = StrategyRegistry()
+_registry.register(BollingerStrategy())
+_registry.register(DualMAStrategy())
+
+# 全局数据状态
 _data_lock = threading.Lock()
 _data_state = {
     "signals": [],
@@ -35,15 +45,50 @@ _data_state = {
     "scan_time": None,
     "loading": True,
     "error": None,
+    "active_strategy": "bollinger",
 }
 
 # 参数实验室状态（不持久化，刷新页面即恢复默认）
 _params_lock = threading.Lock()
 _current_params = {"n": 20, "m": 2.0}
+_current_strategy_id = "bollinger"
+
+
+def _get_strategy():
+    """获取当前活跃策略实例"""
+    with _params_lock:
+        sid = _current_strategy_id
+    return _registry.get(sid)
+
+
+def _scan_with_strategy(strategy, data_dict, params):
+    """
+    用指定策略扫描所有股票信号。
+
+    Returns:
+        (signals_list, new_data_dict)
+    """
+    signals = []
+    new_data_dict = {}
+
+    for symbol, (name, df) in data_dict.items():
+        df_s = strategy.generate_signals(df, params)
+        # 补充 MACD/RSI（如果策略没计算）
+        if "macd" not in df_s.columns:
+            df_s = calculate_macd(df_s)
+        if "rsi" not in df_s.columns:
+            df_s = calculate_rsi(df_s)
+        new_data_dict[symbol] = (name, df_s)
+
+        sig = strategy.create_signal(symbol, name, df_s, len(df_s) - 1, params)
+        if sig:
+            signals.append(sig)
+
+    return signals, new_data_dict
 
 
 def load_data():
-    """加载数据：自选股 → 获取行情 → 计算布林带 → 扫描信号"""
+    """加载数据：自选股 → 获取行情 → 计算指标 → 扫描信号"""
     global _data_state
 
     config = get_config()
@@ -70,8 +115,8 @@ def load_data():
         request_interval=0.5,
     )
 
-    # 计算布林带
-    data_dict_full = {}
+    # 计算基础指标（布林带 + MACD + RSI）
+    data_dict_base = {}
     for stock in stocks:
         symbol = stock.symbol
         name = stock.name
@@ -81,17 +126,13 @@ def load_data():
         df = calculate_bollinger(df, n=config.bollinger_n, m=config.bollinger_m)
         df = calculate_macd(df, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
         df = calculate_rsi(df, period=config.rsi_period)
-        data_dict_full[symbol] = (name, df)
+        data_dict_base[symbol] = (name, df)
         cache.save_bollinger_history(symbol, name, df)
 
-    # 扫描信号
-    volume_threshold = 1.5
-    volume_window = 20
-    signals = scan_all_signals(
-        data_dict=data_dict_full,
-        volume_threshold=volume_threshold,
-        volume_window=volume_window,
-    )
+    # 用活跃策略扫描信号
+    strategy = _get_strategy()
+    params = strategy.get_default_params()
+    signals, data_dict_full = _scan_with_strategy(strategy, data_dict_base, params)
 
     buy_count = len([s for s in signals if s.signal_type == "BUY"])
     sell_count = len([s for s in signals if s.signal_type == "SELL"])
@@ -120,6 +161,7 @@ def load_data():
             "scan_time": scan_time.isoformat(),
             "loading": False,
             "error": None,
+            "active_strategy": strategy.strategy_id,
         }
 
 
@@ -130,11 +172,13 @@ def _signal_to_dict(s):
         "date": s.date,
         "signal_type": s.signal_type,
         "price": s.price,
+        "strategy_id": s.strategy_id,
         "boll_up": s.boll_up,
         "boll_mid": s.boll_mid,
         "boll_down": s.boll_down,
         "volume_ratio": s.volume_ratio,
         "is_enhanced": s.is_enhanced,
+        "metadata": s.metadata,
     }
 
 
@@ -159,6 +203,7 @@ def api_signals():
             "total_stocks": _data_state["total_stocks"],
             "loading": _data_state["loading"],
             "error": _data_state["error"],
+            "strategy_id": _data_state.get("active_strategy", "bollinger"),
         }
 
     buy_signals = [_signal_to_dict(s) for s in signals if s.signal_type == "BUY"]
@@ -176,6 +221,7 @@ def api_stocks():
             "total_stocks": _data_state["total_stocks"],
             "loading": _data_state["loading"],
             "error": _data_state["error"],
+            "strategy_id": _data_state.get("active_strategy", "bollinger"),
         }
 
     import pandas as pd
@@ -201,6 +247,14 @@ def api_stocks():
         elif "sell_signal" in df.columns and latest.get("sell_signal") == 1:
             has_signal = "SELL"
 
+        # 趋势方向（双均线策略）
+        trend = None
+        if "ema_fast" in df.columns and "ema_slow" in df.columns:
+            ef = _safe_float(latest.get("ema_fast"))
+            es = _safe_float(latest.get("ema_slow"))
+            if ef is not None and es is not None and es > 0:
+                trend = "↗ 多头" if ef > es else "↘ 空头"
+
         stocks_list.append(
             {
                 "symbol": symbol,
@@ -213,10 +267,69 @@ def api_stocks():
                 "volume_ratio": volume_ratio,
                 "has_signal": has_signal,
                 "date": str(latest.get("date", "")),
+                "ema_fast": _safe_float(latest.get("ema_fast")),
+                "ema_slow": _safe_float(latest.get("ema_slow")),
+                "trend": trend,
             }
         )
 
     return jsonify(_sanitize_json({"stocks": stocks_list, "meta": meta}))
+
+
+# ─── 策略 API ───────────────────────────────────────────
+
+@app.route("/api/strategies")
+def api_strategies():
+    """返回所有已注册策略"""
+    with _params_lock:
+        active = _current_strategy_id
+    return jsonify({
+        "strategies": _registry.list_all(),
+        "active": active,
+    })
+
+
+@app.route("/api/strategy/switch", methods=["POST"])
+def api_strategy_switch():
+    """切换活跃策略"""
+    body = request.get_json(silent=True) or {}
+    new_id = body.get("strategy", "bollinger")
+
+    strategy = _registry.get(new_id)
+    if strategy is None:
+        return jsonify({"error": f"未知策略: {new_id}"}), 400
+
+    global _current_strategy_id, _current_params
+    with _params_lock:
+        _current_strategy_id = strategy.strategy_id
+        _current_params = dict(strategy.get_default_params())
+
+    with _data_lock:
+        if not _data_state["data_dict"]:
+            return jsonify({"error": "数据未就绪"}), 400
+
+    threading.Thread(target=_background_param_recalc, args=(strategy, _current_params), daemon=True).start()
+    return jsonify({"success": True, "loading": True, "strategy": strategy.strategy_id})
+
+
+# ─── 参数实验室 API ──────────────────────────────────────
+
+def _validate_params(body, schema):
+    """从 body 和 schema 中解析并验证参数"""
+    params = {}
+    for field in schema:
+        key = field["key"]
+        try:
+            if field.get("step", 1) >= 1:
+                val = int(body.get(key, field["default"]))
+            else:
+                val = float(body.get(key, field["default"]))
+        except (ValueError, TypeError):
+            return None, f"{key} 必须是数字"
+        if val < field["min"] or val > field["max"]:
+            return None, f"{key} 范围 {field['min']}-{field['max']}"
+        params[key] = val
+    return params, None
 
 
 @app.route("/api/params")
@@ -225,6 +338,7 @@ def api_params():
         data_dict_snap = dict(_data_state["data_dict"])
         loading = _data_state["loading"]
 
+    strategy = _get_strategy()
     with _params_lock:
         current = dict(_current_params)
 
@@ -232,16 +346,12 @@ def api_params():
         "avg_bandwidth": 0, "avg_std": 0, "volatility_trend": "数据未就绪"
     }
 
-    presets = [
-        {"id": "trend", "label": "趋势跟踪", "n": 20, "m": 2.0, "desc": "标准参数，适合趋势行情"},
-        {"id": "oscillating", "label": "震荡市", "n": 10, "m": 1.5, "desc": "短周期窄带，适合震荡行情"},
-        {"id": "high_vol", "label": "高波动", "n": 30, "m": 2.5, "desc": "长周期宽带，适合高波动行情"},
-        {"id": "tight", "label": "收紧", "n": 15, "m": 1.8, "desc": "中短周期，提前捕捉变盘"},
-    ]
-
     return jsonify(_sanitize_json({
+        "strategy_id": strategy.strategy_id,
+        "strategy_name": strategy.strategy_name,
         "current_params": current,
-        "presets": presets,
+        "params_schema": strategy.get_params_schema(),
+        "presets": strategy.get_presets(),
         "market_snapshot": market_snapshot,
         "loading": loading,
     }))
@@ -249,17 +359,13 @@ def api_params():
 
 @app.route("/api/params/preview", methods=["POST"])
 def api_params_preview():
-    import pandas as pd
-
     body = request.get_json(silent=True) or {}
-    try:
-        n = int(body.get("n", 20))
-        m = float(body.get("m", 2.0))
-    except (ValueError, TypeError):
-        return jsonify({"error": "n 和 m 必须是数字"}), 400
+    strategy = _get_strategy()
+    schema = strategy.get_params_schema()
 
-    if not (5 <= n <= 50) or not (1.0 <= m <= 3.0):
-        return jsonify({"error": "n 范围 5-50，m 范围 1.0-3.0"}), 400
+    params, err = _validate_params(body, schema)
+    if err:
+        return jsonify({"error": err}), 400
 
     with _data_lock:
         data_dict = _data_state["data_dict"]
@@ -270,17 +376,13 @@ def api_params_preview():
     if loading or not data_dict:
         return jsonify({"error": "数据未就绪"}), 400
 
-    from src.bollinger import calculate_bollinger
-    from src.signals import generate_signals, scan_all_signals
-
+    # 用新参数在内存中预览
     preview_dict = {}
     for symbol, (name, df) in data_dict.items():
-        df_p = df.copy()
-        df_p = calculate_bollinger(df_p, n=n, m=m)
-        df_p = generate_signals(df_p)
+        df_p = strategy.generate_signals(df.copy(), params)
         preview_dict[symbol] = (name, df_p)
 
-    preview_signals = scan_all_signals(preview_dict)
+    preview_signals, _ = _scan_with_strategy(strategy, preview_dict, params)
     preview_buy = sum(1 for s in preview_signals if s.signal_type == "BUY")
     preview_sell = sum(1 for s in preview_signals if s.signal_type == "SELL")
 
@@ -293,20 +395,18 @@ def api_params_preview():
 @app.route("/api/params", methods=["POST"])
 def api_params_apply():
     body = request.get_json(silent=True) or {}
-    try:
-        n = int(body.get("n", 20))
-        m = float(body.get("m", 2.0))
-    except (ValueError, TypeError):
-        return jsonify({"error": "n 和 m 必须是数字"}), 400
+    strategy = _get_strategy()
+    schema = strategy.get_params_schema()
 
-    if not (5 <= n <= 50) or not (1.0 <= m <= 3.0):
-        return jsonify({"error": "n 范围 5-50，m 范围 1.0-3.0"}), 400
+    params, err = _validate_params(body, schema)
+    if err:
+        return jsonify({"error": err}), 400
 
+    global _current_params
     with _params_lock:
-        _current_params["n"] = n
-        _current_params["m"] = m
+        _current_params = dict(params)
 
-    threading.Thread(target=_background_param_recalc, args=(n, m), daemon=True).start()
+    threading.Thread(target=_background_param_recalc, args=(strategy, params), daemon=True).start()
     return jsonify({"success": True, "loading": True})
 
 
@@ -335,7 +435,8 @@ def api_stock_detail(symbol):
     # 选择需要的列
     cols = ["date", "open", "high", "low", "close", "volume"]
     extra_cols = [c for c in ["ma_mid", "boll_up", "boll_down", "buy_signal", "sell_signal",
-                              "macd", "macd_signal", "macd_histogram", "rsi"] if c in df_display.columns]
+                              "macd", "macd_signal", "macd_histogram", "rsi",
+                              "ema_fast", "ema_slow"] if c in df_display.columns]
     all_cols = cols + extra_cols
 
     history = df_display[all_cols].to_dict(orient="records")
@@ -411,10 +512,11 @@ def api_stock_detail(symbol):
 def api_refresh():
     try:
         # 重置参数实验室参数为默认值
-        config = get_config()
+        strategy = _get_strategy()
+        defaults = strategy.get_default_params()
+        global _current_params
         with _params_lock:
-            _current_params["n"] = config.bollinger_n
-            _current_params["m"] = config.bollinger_m
+            _current_params = dict(defaults)
         with _data_lock:
             _data_state["loading"] = True
         load_data()
@@ -428,6 +530,7 @@ def api_refresh():
                         "sell_count": _data_state["sell_count"],
                         "enhanced_count": _data_state["enhanced_count"],
                         "total_stocks": _data_state["total_stocks"],
+                        "active_strategy": _data_state.get("active_strategy", "bollinger"),
                     },
                 }
             )
@@ -531,8 +634,8 @@ def _compute_market_snapshot(data_dict):
     }
 
 
-def _background_param_recalc(n, m):
-    """后台线程：用新参数重算布林带和信号，更新 _data_state"""
+def _background_param_recalc(strategy, params):
+    """后台线程：用策略的新参数重算信号，更新 _data_state"""
     global _data_state
 
     with _data_lock:
@@ -546,19 +649,28 @@ def _background_param_recalc(n, m):
         return
 
     try:
-        from src.bollinger import calculate_bollinger
-        from src.signals import generate_signals, scan_all_signals
+        # 如果是布林带策略，需重算布林带列（参数 n/m 影响显示）
+        if strategy.strategy_id == "bollinger":
+            from src.bollinger import calculate_bollinger
+            n_ = int(params.get("n", 20))
+            m_ = float(params.get("m", 2.0))
+            base_dict = {}
+            for symbol, (name, df) in data_dict_snap.items():
+                df_r = df.copy()
+                df_r = calculate_bollinger(df_r, n=n_, m=m_)
+                base_dict[symbol] = (name, df_r)
+        else:
+            base_dict = data_dict_snap
 
-        new_data_dict = {}
-        for symbol, (name, df) in data_dict_snap.items():
-            df_r = df.copy()
-            df_r = calculate_bollinger(df_r, n=n, m=m)
-            df_r = generate_signals(df_r)
-            df_r = calculate_macd(df_r, fast=get_config().macd_fast, slow=get_config().macd_slow, signal=get_config().macd_signal)
-            df_r = calculate_rsi(df_r, period=get_config().rsi_period)
-            new_data_dict[symbol] = (name, df_r)
+        signals, new_data_dict = _scan_with_strategy(strategy, base_dict, params)
 
-        signals = scan_all_signals(new_data_dict)
+        # 补充 Bollinger（非布林策略保留用于展示）
+        if strategy.strategy_id != "bollinger":
+            for symbol, (name, df) in new_data_dict.items():
+                if "boll_up" not in df.columns or "boll_down" not in df.columns:
+                    from src.bollinger import calculate_bollinger
+                    df = calculate_bollinger(df)
+
         buy_count = sum(1 for s in signals if s.signal_type == "BUY")
         sell_count = sum(1 for s in signals if s.signal_type == "SELL")
         enhanced_count = sum(1 for s in signals if s.is_enhanced)
@@ -574,6 +686,7 @@ def _background_param_recalc(n, m):
             _data_state["scan_time"] = scan_time.isoformat()
             _data_state["loading"] = False
             _data_state["error"] = None
+            _data_state["active_strategy"] = strategy.strategy_id
     except Exception as e:
         with _data_lock:
             _data_state["loading"] = False
@@ -633,9 +746,10 @@ def load_cached_data():
                 date=str(row.get("date", "")),
                 signal_type=str(row.get("signal_type", "NONE")),
                 price=float(row.get("price", 0)),
-                boll_up=float(row.get("boll_up", 0)),
-                boll_mid=float(row.get("boll_mid", 0)),
-                boll_down=float(row.get("boll_down", 0)),
+                strategy_id=str(row.get("strategy_id", "bollinger")),
+                boll_up=float(row["boll_up"]) if pd.notna(row.get("boll_up")) else None,
+                boll_mid=float(row["boll_mid"]) if pd.notna(row.get("boll_mid")) else None,
+                boll_down=float(row["boll_down"]) if pd.notna(row.get("boll_down")) else None,
                 volume_ratio=float(row["volume_ratio"]) if pd.notna(row.get("volume_ratio")) else None,
                 is_enhanced=bool(row.get("is_enhanced", False)),
             )
@@ -656,6 +770,7 @@ def load_cached_data():
             "scan_time": meta.get("scan_time") if meta else None,
             "loading": len(data_dict) == 0,
             "error": None,
+            "active_strategy": "bollinger",
         }
 
 
