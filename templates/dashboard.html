@@ -14,6 +14,10 @@
         header .refresh-btn { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
         header .refresh-btn:hover { background: rgba(255,255,255,0.3); }
         header .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .strategy-select { display: inline-block; margin-right: 12px; }
+        .strategy-select select { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; outline: none; min-width: 160px; }
+        .strategy-select select option { color: #333; background: white; }
+        .strategy-select select option:disabled { color: #95a5a6; }
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .stat-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
         .stat-value { font-size: 32px; font-weight: bold; }
@@ -110,13 +114,21 @@
         .squeeze-timeline-item.breakout-up::before { background: #16a34a; }
         .squeeze-timeline-item.breakout-down::before { background: #dc2626; }
         .squeeze-empty { font-size: 13px; color: #95a5a6; margin-top: 8px; }
+        .strategy-signal-bar { background: linear-gradient(135deg, rgba(102,126,234,0.08), rgba(118,75,162,0.08)); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; border-left: 4px solid #667eea; }
+        .strategy-signal-bar .signal-label { font-size: 13px; color: #667eea; font-weight: 600; }
+        .strategy-signal-bar .signal-detail { font-size: 14px; color: #2c3e50; margin-top: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>📊 布林带策略工作台</h1>
+            <h1 id="page-title">📊 布林带策略工作台</h1>
             <p id="header-meta">正在加载...</p>
+            <div class="strategy-select">
+                <select id="strategy-select" onchange="onStrategyChange()">
+                    <option value="">加载中...</option>
+                </select>
+            </div>
             <button class="refresh-btn" onclick="refreshData()" id="refreshBtn">🔄 刷新数据</button>
         </header>
 
@@ -230,6 +242,13 @@
     <script>
         let signalsData = null;
         let stocksData = null;
+        let currentStrategyId = 'bollinger';
+        let strategiesList = [];
+
+        const strategyLabels = {
+            'bollinger': { buy: '买入信号 (触及下轨)', sell: '卖出信号 (触及上轨)', enhanced: '增强信号 (>1.5x 量)' },
+            'dual_ma': { buy: '买入信号 (金叉)', sell: '卖出信号 (死叉)', enhanced: '增强信号 (>1.2x 量)' },
+        };
 
         const posColors = {
             '上轨附近': '#27ae60', '下轨附近': '#e74c3c',
@@ -247,6 +266,46 @@
         let presetData = [];
         let detailChartHistory = null;
         let detailChartClicked = null;
+
+        async function initStrategySelect() {
+            try {
+                const data = await fetchJSON('/api/strategies');
+                strategiesList = data.strategies || [];
+                currentStrategyId = data.active || 'bollinger';
+                const sel = document.getElementById('strategy-select');
+                sel.innerHTML = strategiesList.map(s =>
+                    '<option value="' + s.id + '"' + (s.id === currentStrategyId ? ' selected' : '') + '>' + s.name + '</option>'
+                ).join('');
+                updateStatLabels();
+            } catch (e) {}
+        }
+
+        async function onStrategyChange() {
+            const newId = document.getElementById('strategy-select').value;
+            if (newId === currentStrategyId) return;
+            try {
+                const resp = await fetch('/api/strategy/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ strategy: newId })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    currentStrategyId = newId;
+                    document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === newId) || {}).name + '策略工作台';
+                    updateStatLabels();
+                    pollTimer = setInterval(autoRefresh, 3000);
+                }
+            } catch (e) {}
+        }
+
+        function updateStatLabels() {
+            const labels = strategyLabels[currentStrategyId] || strategyLabels['bollinger'];
+            document.querySelector('.stat-card:nth-child(1) .stat-label').textContent = labels.buy;
+            document.querySelector('.stat-card:nth-child(2) .stat-label').textContent = labels.sell;
+            document.querySelector('.stat-card:nth-child(3) .stat-label').textContent = labels.enhanced;
+            document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === currentStrategyId) || {name:'布林带'}).name + '策略工作台';
+        }
 
         async function loadAll() {
             try {
@@ -276,11 +335,13 @@
                 updateStats(sigRes.meta);
                 if (!sigRes.meta.loading) {
                     clearInterval(pollTimer);
+                    currentStrategyId = sigRes.meta.strategy_id || currentStrategyId;
                     const stkRes = await fetchJSON('/api/stocks');
                     signalsData = sigRes;
                     stocksData = stkRes;
                     renderSignals(sigRes);
                     renderOverview(stkRes);
+                    updateStatLabels();
                     var applyBtn = document.getElementById('apply-btn');
                     if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = '应用参数'; }
                     if (document.getElementById('tab-params').classList.contains('active')) {
@@ -323,22 +384,44 @@
             if (signals.length === 0) {
                 return '<p class="empty">暂无' + (type === 'BUY' ? '买入' : '卖出') + '信号</p>';
             }
+            // 从第一条 signal 获取列定义
+            var displayFields = (signals[0].metadata && signals[0].metadata.display_fields) || [
+                {key: 'price', label: '价格', format: 'price'},
+                {key: 'volume_ratio', label: '量比', format: 'ratio'}
+            ];
+            // 固定前置列
+            var headerCols = '<th>代码</th><th>名称</th><th>类型</th>';
+            displayFields.forEach(function(f) { headerCols += '<th>' + f.label + '</th>'; });
+            headerCols += '<th>日期</th>';
+
             let rows = signals.map(s => {
                 const typeBadge = '<span class="badge badge-' + s.signal_type.toLowerCase() + '">' + s.signal_type + '</span>';
                 const enhBadge = s.is_enhanced
                     ? '<span class="badge badge-enhanced">🟢 增强</span>'
                     : '<span class="badge badge-normal">⚪ 普通</span>';
-                const vol = s.volume_ratio ? s.volume_ratio.toFixed(1) + 'x' : '-';
-                return `<tr onclick="showStockDetail('${s.symbol}')">
-                    <td><strong>${s.symbol}</strong></td>
-                    <td>${s.name}</td>
-                    <td>${typeBadge} ${enhBadge}</td>
-                    <td>¥${s.price.toFixed(2)}</td>
-                    <td>${vol}</td>
-                    <td>${s.date}</td>
-                </tr>`;
+                var rowHtml = '<tr onclick="showStockDetail(\'' + s.symbol + '\')">' +
+                    '<td><strong>' + s.symbol + '</strong></td>' +
+                    '<td>' + s.name + '</td>' +
+                    '<td>' + typeBadge + ' ' + enhBadge + '</td>';
+
+                displayFields.forEach(function(f) {
+                    var val = _getFieldValue(s, f);
+                    rowHtml += '<td>' + val + '</td>';
+                });
+                rowHtml += '<td>' + s.date + '</td></tr>';
+                return rowHtml;
             }).join('');
-            return `<table class="table"><thead><tr><th>代码</th><th>名称</th><th>类型</th><th>价格</th><th>量比</th><th>日期</th></tr></thead><tbody>${rows}</tbody></table>`;
+            return '<table class="table"><thead><tr>' + headerCols + '</tr></thead><tbody>' + rows + '</tbody></table>';
+        }
+
+        function _getFieldValue(signal, field) {
+            var val = signal[field.key];
+            if (val === null || val === undefined) val = (signal.metadata && signal.metadata[field.key]);
+            if (val === null || val === undefined) return '-';
+            var fmt = field.format || 'raw';
+            if (fmt === 'price') return '¥' + Number(val).toFixed(2);
+            if (fmt === 'ratio') return Number(val).toFixed(1) + 'x';
+            return val;
         }
 
         let allStocks = [];
@@ -365,30 +448,40 @@
                 return;
             }
 
+            var isDualMA = currentStrategyId === 'dual_ma';
+            var headerHtml = '<tr><th>代码</th><th>名称</th><th>现价</th>';
+            if (isDualMA) {
+                headerHtml += '<th>快线(EMA)</th><th>慢线(EMA)</th><th>趋势</th>';
+            } else {
+                headerHtml += '<th>中轨</th><th>上轨</th><th>下轨</th><th>位置</th>';
+            }
+            headerHtml += '<th>信号</th></tr>';
+
             let rows = stocks.map(s => {
                 const signalBadge = s.has_signal === 'BUY'
                     ? '<span class="badge badge-buy">买入</span>'
                     : s.has_signal === 'SELL'
                         ? '<span class="badge badge-sell">卖出</span>'
                         : '';
-                const color = posColors[s.position] || '#ccc';
-                const vol = s.volume_ratio ? s.volume_ratio.toFixed(1) + 'x' : '-';
-                return `<tr onclick="showStockDetail('${s.symbol}')">
-                    <td><strong>${s.symbol}</strong></td>
-                    <td>${s.name}</td>
-                    <td>¥${s.close.toFixed(2)}</td>
-                    <td>¥${s.boll_mid.toFixed(2)}</td>
-                    <td>¥${s.boll_up.toFixed(2)}</td>
-                    <td>¥${s.boll_down.toFixed(2)}</td>
-                    <td style="color:${color}">📌 ${s.position}</td>
-                    <td>${signalBadge}</td>
-                </tr>`;
+                var rowHtml = '<tr onclick="showStockDetail(\'' + s.symbol + '\')">' +
+                    '<td><strong>' + s.symbol + '</strong></td>' +
+                    '<td>' + s.name + '</td>' +
+                    '<td>¥' + s.close.toFixed(2) + '</td>';
+                if (isDualMA) {
+                    var ef = s.ema_fast ? s.ema_fast.toFixed(2) : '-';
+                    var es = s.ema_slow ? s.ema_slow.toFixed(2) : '-';
+                    var trend = s.trend || '-';
+                    var trendColor = trend.includes('多头') ? '#16a34a' : trend.includes('空头') ? '#dc2626' : '#333';
+                    rowHtml += '<td>¥' + ef + '</td><td>¥' + es + '</td><td style="color:' + trendColor + ';font-weight:600">' + trend + '</td>';
+                } else {
+                    const color = posColors[s.position] || '#ccc';
+                    rowHtml += '<td>¥' + s.boll_mid.toFixed(2) + '</td><td>¥' + s.boll_up.toFixed(2) + '</td><td>¥' + s.boll_down.toFixed(2) + '</td><td style="color:' + color + '">📌 ' + s.position + '</td>';
+                }
+                rowHtml += '<td>' + signalBadge + '</td></tr>';
+                return rowHtml;
             }).join('');
 
-            container.innerHTML = `<h2>📋 全部股票状态</h2>
-                <table class="table">
-                    <thead><tr><th>代码</th><th>名称</th><th>现价</th><th>中轨</th><th>上轨</th><th>下轨</th><th>位置</th><th>信号</th></tr></thead>
-                    <tbody>${rows}</tbody></table>`;
+            container.innerHTML = '<h2>📋 全部股票状态</h2><table class="table"><thead>' + headerHtml + '</thead><tbody>' + rows + '</tbody></table>';
         }
 
         async function showStockDetail(symbol) {
@@ -403,25 +496,63 @@
                 document.getElementById('modal-title').textContent = data.name + ' (' + data.symbol + ')';
 
                 const l = data.latest;
-                const posMap = { '上轨附近': '#27ae60', '下轨附近': '#e74c3c', '中上区间': '#3498db', '中下区间': '#95a5a6', '-': '#ccc' };
+                var isDualMA = currentStrategyId === 'dual_ma';
+                const histArr = data.history || [];
 
-                // 计算布林带位置
+                // 布林带位置
                 let pos = '-';
-                if (l.boll_up > l.boll_down) {
+                if (l.boll_up && l.boll_down && l.boll_up > l.boll_down) {
                     if (l.close >= l.boll_up) pos = '上轨附近';
                     else if (l.close <= l.boll_down) pos = '下轨附近';
                     else if (l.close >= l.boll_mid) pos = '中上区间';
                     else pos = '中下区间';
                 }
 
-                let html = '<div class="detail-stats">' +
-                    '<div class="detail-stat"><div class="val">¥' + l.close.toFixed(2) + '</div><div class="lbl">最新价</div></div>' +
-                    '<div class="detail-stat"><div class="val">¥' + l.boll_up.toFixed(2) + '</div><div class="lbl">布林上轨</div></div>' +
-                    '<div class="detail-stat"><div class="val">¥' + l.boll_mid.toFixed(2) + '</div><div class="lbl">布林中轨</div></div>' +
-                    '<div class="detail-stat"><div class="val">¥' + l.boll_down.toFixed(2) + '</div><div class="lbl">布林下轨</div></div>' +
-                    '<div class="detail-stat"><div class="val" style="color:' + (posColors[pos] || '#333') + '">' + pos + '</div><div class="lbl">当前位置</div></div>' +
-                    (l.volume_ratio ? '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>' : '') +
+                // 策略信号状态条
+                var strategyName = (strategiesList.find(function(s) { return s.id === currentStrategyId; }) || {}).name || '布林带触碰';
+                var sigLabel = '';
+                if (l.buy_signal) sigLabel = '买入';
+                else if (l.sell_signal) sigLabel = '卖出';
+                else sigLabel = '无信号';
+                var sigDesc = '';
+                if (isDualMA) {
+                    var lastH = histArr.length > 0 ? histArr[histArr.length - 1] : null;
+                    if (lastH) {
+                        sigDesc = '快线(¥' + (lastH.ema_fast ? lastH.ema_fast.toFixed(2) : '-') + ') vs 慢线(¥' + (lastH.ema_slow ? lastH.ema_slow.toFixed(2) : '-') + ')';
+                    }
+                } else {
+                    sigDesc = '上轨 ¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + ' / 下轨 ¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-');
+                }
+                var sigColor = l.buy_signal ? '#16a34a' : l.sell_signal ? '#dc2626' : '#95a5a6';
+                var html = '<div class="strategy-signal-bar">' +
+                    '<span class="signal-label">当前策略: ' + strategyName + '</span>' +
+                    ' <span style="color:' + sigColor + ';font-weight:600">| 最新信号: ' + sigLabel + '</span>' +
+                    '<div class="signal-detail">' + sigDesc + '</div>' +
                     '</div>';
+
+                // 详情统计卡片
+                html += '<div class="detail-stats">' +
+                    '<div class="detail-stat"><div class="val">¥' + l.close.toFixed(2) + '</div><div class="lbl">最新价</div></div>';
+
+                if (isDualMA) {
+                    var latestRow = histArr.length > 0 ? histArr[histArr.length - 1] : {};
+                    var ef = latestRow.ema_fast ? latestRow.ema_fast.toFixed(2) : '-';
+                    var es = latestRow.ema_slow ? latestRow.ema_slow.toFixed(2) : '-';
+                    var trendTxt = latestRow.ema_fast > latestRow.ema_slow ? '↗ 多头' : '↘ 空头';
+                    var trendClr = latestRow.ema_fast > latestRow.ema_slow ? '#16a34a' : '#dc2626';
+                    html += '<div class="detail-stat"><div class="val">¥' + ef + '</div><div class="lbl">快线(EMA)</div></div>' +
+                        '<div class="detail-stat"><div class="val">¥' + es + '</div><div class="lbl">慢线(EMA)</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + trendClr + '">' + trendTxt + '</div><div class="lbl">趋势方向</div></div>';
+                } else {
+                    html += '<div class="detail-stat"><div class="val">¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + '</div><div class="lbl">布林上轨</div></div>' +
+                        '<div class="detail-stat"><div class="val">¥' + (l.boll_mid ? l.boll_mid.toFixed(2) : '-') + '</div><div class="lbl">布林中轨</div></div>' +
+                        '<div class="detail-stat"><div class="val">¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-') + '</div><div class="lbl">布林下轨</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + (posColors[pos] || '#333') + '">' + pos + '</div><div class="lbl">当前位置</div></div>';
+                }
+                if (l.volume_ratio) {
+                    html += '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>';
+                }
+                html += '</div>';
 
                 // MACD + RSI 指标卡片 + 解读
                 let rsiColor = '#333', rsiLabel = '', rsiTip = '';
@@ -464,9 +595,8 @@
 
                 body.innerHTML = html;
 
-                const history = data.history || [];
-                if (history.length > 0) {
-                    drawMiniChart('detail-chart', history);
+                if (histArr.length > 0) {
+                    drawMiniChart('detail-chart', histArr);
                 }
             } catch (e) {
                 body.innerHTML = '<div class="error-msg">加载失败: ' + e.message + '</div>';
@@ -499,8 +629,11 @@
             const maMids = history.map(d => d.ma_mid || null);
             const bollUps = history.map(d => d.boll_up || null);
             const bollDowns = history.map(d => d.boll_down || null);
+            const emaFasts = history.map(d => d.ema_fast || null);
+            const emaSlows = history.map(d => d.ema_slow || null);
 
-            const allVals = [...closes, ...maMids.filter(v => v), ...bollUps.filter(v => v), ...bollDowns.filter(v => v)];
+            const allVals = [...closes, ...maMids.filter(v => v), ...bollUps.filter(v => v), ...bollDowns.filter(v => v),
+                            ...emaFasts.filter(v => v), ...emaSlows.filter(v => v)];
             const minVal = Math.min(...allVals);
             const maxVal = Math.max(...allVals);
             const range = maxVal - minVal || 1;
@@ -508,21 +641,24 @@
             const xScale = i => pad.left + (i / (history.length - 1)) * pw;
             const yScale = v => pad.top + priceH - ((v - minVal) / range) * priceH;
 
-            // 布林带填充
-            ctx.fillStyle = 'rgba(128,128,128,0.08)';
-            ctx.beginPath();
-            for (let i = 0; i < history.length; i++) {
-                if (bollUps[i] == null) continue;
-                const x = xScale(i);
-                ctx.lineTo(x, yScale(bollUps[i]));
+            // 布林带填充 / EMA 线
+            var isDualMAChart = currentStrategyId === 'dual_ma';
+            if (!isDualMAChart) {
+                ctx.fillStyle = 'rgba(128,128,128,0.08)';
+                ctx.beginPath();
+                for (let i = 0; i < history.length; i++) {
+                    if (bollUps[i] == null) continue;
+                    const x = xScale(i);
+                    ctx.lineTo(x, yScale(bollUps[i]));
+                }
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (bollDowns[i] == null) continue;
+                    const x = xScale(i);
+                    ctx.lineTo(x, yScale(bollDowns[i]));
+                }
+                ctx.closePath();
+                ctx.fill();
             }
-            for (let i = history.length - 1; i >= 0; i--) {
-                if (bollDowns[i] == null) continue;
-                const x = xScale(i);
-                ctx.lineTo(x, yScale(bollDowns[i]));
-            }
-            ctx.closePath();
-            ctx.fill();
 
             // 网格
             ctx.strokeStyle = '#ecf0f1';
@@ -540,43 +676,71 @@
                 ctx.fillText(val.toFixed(2), pad.left - 6, y + 4);
             }
 
-            // 均线
-            ctx.strokeStyle = '#ff7f0e';
-            ctx.setLineDash([4, 2]);
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            let started = false;
-            for (let i = 0; i < history.length; i++) {
-                if (maMids[i] == null) continue;
-                if (!started) { ctx.moveTo(xScale(i), yScale(maMids[i])); started = true; }
-                else ctx.lineTo(xScale(i), yScale(maMids[i]));
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
+            if (isDualMAChart) {
+                // EMA 快线
+                ctx.strokeStyle = '#ff7f0e';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                let efs = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (emaFasts[i] == null) continue;
+                    if (!efs) { ctx.moveTo(xScale(i), yScale(emaFasts[i])); efs = true; }
+                    else ctx.lineTo(xScale(i), yScale(emaFasts[i]));
+                }
+                ctx.stroke();
+                // EMA 慢线
+                ctx.strokeStyle = '#2ca02c';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 2]);
+                ctx.beginPath();
+                let ess = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (emaSlows[i] == null) continue;
+                    if (!ess) { ctx.moveTo(xScale(i), yScale(emaSlows[i])); ess = true; }
+                    else ctx.lineTo(xScale(i), yScale(emaSlows[i]));
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                // 均线
+                ctx.strokeStyle = '#ff7f0e';
+                ctx.setLineDash([4, 2]);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (maMids[i] == null) continue;
+                    if (!started) { ctx.moveTo(xScale(i), yScale(maMids[i])); started = true; }
+                    else ctx.lineTo(xScale(i), yScale(maMids[i]));
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
 
-            // 上轨
-            ctx.strokeStyle = '#2ca02c';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            started = false;
-            for (let i = 0; i < history.length; i++) {
-                if (bollUps[i] == null) continue;
-                if (!started) { ctx.moveTo(xScale(i), yScale(bollUps[i])); started = true; }
-                else ctx.lineTo(xScale(i), yScale(bollUps[i]));
-            }
-            ctx.stroke();
+                // 上轨
+                ctx.strokeStyle = '#2ca02c';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                started = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (bollUps[i] == null) continue;
+                    if (!started) { ctx.moveTo(xScale(i), yScale(bollUps[i])); started = true; }
+                    else ctx.lineTo(xScale(i), yScale(bollUps[i]));
+                }
+                ctx.stroke();
 
-            // 下轨
-            ctx.strokeStyle = '#d62728';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            started = false;
-            for (let i = 0; i < history.length; i++) {
-                if (bollDowns[i] == null) continue;
-                if (!started) { ctx.moveTo(xScale(i), yScale(bollDowns[i])); started = true; }
-                else ctx.lineTo(xScale(i), yScale(bollDowns[i]));
+                // 下轨
+                ctx.strokeStyle = '#d62728';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                started = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (bollDowns[i] == null) continue;
+                    if (!started) { ctx.moveTo(xScale(i), yScale(bollDowns[i])); started = true; }
+                    else ctx.lineTo(xScale(i), yScale(bollDowns[i]));
+                }
+                ctx.stroke();
             }
-            ctx.stroke();
 
             // 收盘价线
             ctx.strokeStyle = '#1f77b4';
@@ -917,10 +1081,13 @@
 
         // ─── 参数实验室 ──────────────────────────────────────────
 
+        let currentParamsSchema = [];
+
         async function loadParams() {
             try {
                 const data = await fetchJSON('/api/params');
                 presetData = data.presets || [];
+                currentParamsSchema = data.params_schema || [];
                 if (data.loading) {
                     document.getElementById('paramlab-loading').style.display = 'block';
                     document.getElementById('paramlab-content').style.display = 'none';
@@ -929,14 +1096,43 @@
                     document.getElementById('paramlab-content').style.display = 'block';
                 }
                 renderMarketSnapshot(data.market_snapshot);
-                renderPresets(data.presets, data.current_params.n, data.current_params.m);
-                if (!data.loading) {
-                    document.getElementById('slider-n').value = data.current_params.n;
-                    document.getElementById('slider-m').value = data.current_params.m;
-                    updateSliderLabels();
-                }
+                // 动态渲染滑块区域
+                var sliderGroup = document.querySelector('#tab-params .slider-group');
+                if (sliderGroup) sliderGroup.innerHTML = renderSliders(currentParamsSchema, data.current_params);
+                renderPresets(data.presets, data.current_params);
+                if (!data.loading) updateSliderLabels();
                 updateComparison();
             } catch (e) {}
+        }
+
+        function renderSliders(schema, values) {
+            if (!schema || schema.length === 0) return '<p>无参数可调</p>';
+            var html = '';
+            schema.forEach(function(p) {
+                var val = values[p.key] !== undefined ? values[p.key] : p.default;
+                var step = p.step || 1;
+                var isFloat = step < 1;
+                html += '<div class="slider-row">' +
+                    '<div class="slider-label">' +
+                        '<span>' + p.label + '</span>' +
+                        '<span class="slider-value" id="sv-' + p.key + '">' + (isFloat ? parseFloat(val).toFixed(1) : val) + '</span>' +
+                    '</div>' +
+                    '<input type="range" id="slider-' + p.key + '" min="' + p.min + '" max="' + p.max + '" step="' + step + '" value="' + val + '" oninput="onSliderChange()">' +
+                    '<div class="slider-range">' + p.min + ' — ' + p.max + '</div>' +
+                '</div>';
+            });
+            return html;
+        }
+
+        function getSliderParams() {
+            var params = {};
+            currentParamsSchema.forEach(function(p) {
+                var el = document.getElementById('slider-' + p.key);
+                if (!el) return;
+                var step = p.step || 1;
+                params[p.key] = step < 1 ? parseFloat(el.value) : parseInt(el.value);
+            });
+            return params;
         }
 
         function renderMarketSnapshot(snapshot) {
@@ -949,56 +1145,78 @@
             trendEl.style.color = trend.includes('上升') ? '#dc2626' : trend.includes('下降') ? '#16a34a' : '#333';
         }
 
-        function renderPresets(presets, currentN, currentM) {
+        function renderPresets(presets, currentParams) {
             if (!presets) return;
             var html = '';
             presets.forEach(function(p) {
-                var active = (p.n === currentN && p.m === currentM) ? ' active' : '';
-                html += '<div class="preset-btn' + active + '" onclick="selectPreset(\'' + p.id + '\',' + p.n + ',' + p.m + ')">' +
+                var pparams = p.params || p;
+                var isActive = true;
+                if (currentParams) {
+                    for (var k in pparams) {
+                        if (pparams[k] != currentParams[k]) { isActive = false; break; }
+                    }
+                }
+                var paramsText = '';
+                var keys = Object.keys(pparams);
+                keys.forEach(function(k) {
+                    var val = pparams[k];
+                    paramsText += (paramsText ? '  ' : '') + k + '=' + (Number.isInteger(val) ? val : val.toFixed(1));
+                });
+                html += '<div class="preset-btn' + (isActive ? ' active' : '') + '" onclick="selectPreset(\'' + p.id + '\')" data-preset-id="' + p.id + '">' +
                     '<div class="preset-name">' + p.label + '</div>' +
-                    '<div class="preset-params">N=' + p.n + '  M=' + p.m.toFixed(1) + '</div>' +
+                    '<div class="preset-params">' + paramsText + '</div>' +
                     '<div class="preset-desc">' + p.desc + '</div>' +
                     '</div>';
             });
             document.getElementById('preset-grid').innerHTML = html;
         }
 
-        function selectPreset(id, n, m) {
-            document.getElementById('slider-n').value = n;
-            document.getElementById('slider-m').value = m;
+        function selectPreset(id) {
+            var preset = presetData.find(function(p) { return p.id === id; });
+            if (!preset) return;
+            var pparams = preset.params || preset;
+            // 设置滑块值
+            for (var k in pparams) {
+                var el = document.getElementById('slider-' + k);
+                if (el) el.value = pparams[k];
+            }
             updateSliderLabels();
             var btns = document.querySelectorAll('#preset-grid .preset-btn');
             btns.forEach(function(b) { b.classList.remove('active'); });
-            var target = document.querySelector('#preset-grid .preset-btn[onclick*="' + id + '"]');
+            var target = document.querySelector('#preset-grid .preset-btn[data-preset-id="' + id + '"]');
             if (target) target.classList.add('active');
-            debouncedPreview(n, m);
+            debouncedPreview();
         }
 
         function updateSliderLabels() {
-            document.getElementById('n-value').textContent = document.getElementById('slider-n').value;
-            document.getElementById('m-value').textContent = parseFloat(document.getElementById('slider-m').value).toFixed(1);
+            currentParamsSchema.forEach(function(p) {
+                var el = document.getElementById('slider-' + p.key);
+                var label = document.getElementById('sv-' + p.key);
+                if (!el || !label) return;
+                var step = p.step || 1;
+                label.textContent = step < 1 ? parseFloat(el.value).toFixed(1) : el.value;
+            });
         }
 
         function onSliderChange() {
             updateSliderLabels();
             var btns = document.querySelectorAll('#preset-grid .preset-btn');
             btns.forEach(function(b) { b.classList.remove('active'); });
-            var n = parseInt(document.getElementById('slider-n').value);
-            var m = parseFloat(document.getElementById('slider-m').value);
-            debouncedPreview(n, m);
+            debouncedPreview();
         }
 
-        function debouncedPreview(n, m) {
+        function debouncedPreview() {
             clearTimeout(previewDebounceTimer);
-            previewDebounceTimer = setTimeout(function() { triggerPreview(n, m); }, 300);
+            previewDebounceTimer = setTimeout(function() { triggerPreview(); }, 300);
         }
 
-        async function triggerPreview(n, m) {
+        async function triggerPreview() {
             try {
+                var params = getSliderParams();
                 var resp = await fetch('/api/params/preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ n: n, m: m })
+                    body: JSON.stringify(params)
                 });
                 var data = await resp.json();
                 if (!data.error) {
@@ -1044,8 +1262,7 @@
         }
 
         async function applyParams() {
-            var n = parseInt(document.getElementById('slider-n').value);
-            var m = parseFloat(document.getElementById('slider-m').value);
+            var params = getSliderParams();
             var btn = document.getElementById('apply-btn');
             btn.disabled = true;
             btn.textContent = '⏳ 重算中...';
@@ -1053,7 +1270,7 @@
                 var resp = await fetch('/api/params', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ n: n, m: m })
+                    body: JSON.stringify(params)
                 });
                 var result = await resp.json();
                 if (result.success) {
@@ -1110,6 +1327,7 @@
         }
 
         // 页面加载
+        initStrategySelect();
         loadAll();
     </script>
 </body>
