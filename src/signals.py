@@ -2,23 +2,25 @@
 
 import pandas as pd
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
 
 @dataclass
 class Signal:
-    """单只股票的信号结果"""
+    """单只股票的信号结果（多策略通用）"""
     symbol: str
     name: str
     date: str
     signal_type: str  # "BUY", "SELL", "NONE"
     price: float
-    boll_up: float
-    boll_mid: float
-    boll_down: float
+    strategy_id: str = "bollinger"  # 策略标识
+    boll_up: Optional[float] = None  # 布林上轨（非布林策略为 None）
+    boll_mid: Optional[float] = None  # 布林中轨
+    boll_down: Optional[float] = None  # 布林下轨
     volume_ratio: Optional[float] = None  # 成交量放大比例
     is_enhanced: bool = False  # 是否通过成交量验证（增强信号）
+    metadata: dict = field(default_factory=dict)  # 策略专属字段（如 display_fields, ema_fast 等）
 
 
 def generate_signals(df: pd.DataFrame) -> pd.DataFrame:

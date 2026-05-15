@@ -60,6 +60,13 @@ class Config:
     volume_threshold: float = 1.5  # 成交量放大阈值
     volume_window: int = 20
 
+    # === 多策略配置 ===
+    active_strategy: str = "bollinger"  # 当前活跃策略 ID
+
+    # === 双均线策略配置 ===
+    dualma_fast: int = 5     # 快线周期 (EMA)
+    dualma_slow: int = 20    # 慢线周期 (EMA)
+
 
 def get_config() -> Config:
     """获取配置实例"""
