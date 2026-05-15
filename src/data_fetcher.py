@@ -518,9 +518,23 @@ def get_data_hk_daily_akshare(symbol: str, start_date: str, period: str = "daily
     for attempt in range(max_retries):
         try:
             df = ak.stock_hk_daily(symbol=symbol, adjust="qfq")
+            # 列名映射：中文列名 → 英文标准列名（与 A 股数据源保持一致）
+            _COLUMN_MAP = {
+                "日期": "date", "开盘": "open", "最高": "high",
+                "最低": "low", "收盘": "close", "成交量": "volume",
+            }
+            rename_map = {k: v for k, v in _COLUMN_MAP.items() if k in df.columns}
+            if rename_map:
+                df = df.rename(columns=rename_map)
+            # 确保所需列存在
+            required = ["date", "open", "high", "low", "close", "volume"]
+            df = df[[c for c in required if c in df.columns]]
             df["date"] = df["date"].astype(str)
-            # 过滤日期范围
-            df = df[df["date"] >= start_date]
+            # 过滤日期范围：stock_hk_daily 返回 YYYY-MM-DD 格式，
+            # start_date 是 YYYYMMDD，统一去掉连字符后比较
+            df["_date_cmp"] = df["date"].str.replace("-", "")
+            df = df[df["_date_cmp"] >= start_date]
+            df = df.drop(columns=["_date_cmp"])
             if len(df) == 0:
                 raise Exception("stock_hk_daily no data after start_date filter")
             print(f"stock_hk_daily success! {len(df)} rows")
