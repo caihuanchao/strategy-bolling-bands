@@ -67,6 +67,18 @@ class Config:
     dualma_fast: int = 5     # 快线周期 (EMA)
     dualma_slow: int = 20    # 慢线周期 (EMA)
 
+    # === 三重确认策略配置（固定参数） ===
+    triple_confirm_volume_a_threshold: float = 1.0  # A 级量比基础阈值
+    triple_confirm_volume_s_threshold: float = 1.5  # S 级量比阈值
+    triple_confirm_adx_threshold: int = 20          # ADX 震荡市阈值
+    triple_confirm_ma50_window: int = 50            # MA50 趋势过滤窗口
+    triple_confirm_rsi_long_low: float = 30.0       # 做多 RSI 下限
+    triple_confirm_rsi_long_high: float = 65.0      # 做多 RSI 上限
+    triple_confirm_rsi_short_low: float = 45.0      # 做空 RSI 下限
+    triple_confirm_rsi_short_high: float = 70.0     # 做空 RSI 上限
+    triple_confirm_rsi_overbought_exit: float = 75.0  # 超买出场阈值
+    triple_confirm_volume_shrink_days: int = 3      # 缩量止跌检测天数
+
 
 def get_config() -> Config:
     """获取配置实例"""

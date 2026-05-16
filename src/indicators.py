@@ -187,3 +187,81 @@ def calculate_all_indicators(
     )
 
     return df
+
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """
+    计算 ADX (平均趋向指数) — Wilder 平滑法
+    """
+    df = df.copy()
+    n = len(df)
+
+    if n < period + 1:
+        df["adx"] = np.nan
+        df["plus_di"] = np.nan
+        df["minus_di"] = np.nan
+        return df
+
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+
+    tr = np.zeros(n)
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+
+    for i in range(1, n):
+        hl = high[i] - low[i]
+        hc = abs(high[i] - close[i - 1])
+        lc = abs(low[i] - close[i - 1])
+        tr[i] = max(hl, hc, lc)
+
+        up_move = high[i] - high[i - 1]
+        down_move = low[i - 1] - low[i]
+
+        if up_move > down_move and up_move > 0:
+            plus_dm[i] = up_move
+        else:
+            plus_dm[i] = 0
+
+        if down_move > up_move and down_move > 0:
+            minus_dm[i] = down_move
+        else:
+            minus_dm[i] = 0
+
+    # Wilder 平滑 (RMA): 首值为 SMA，后续 prev + (val - prev) / period
+    tr_smooth = np.zeros(n)
+    plus_dm_smooth = np.zeros(n)
+    minus_dm_smooth = np.zeros(n)
+
+    tr_smooth[period] = np.mean(tr[1:period + 1])
+    plus_dm_smooth[period] = np.mean(plus_dm[1:period + 1])
+    minus_dm_smooth[period] = np.mean(minus_dm[1:period + 1])
+
+    for i in range(period + 1, n):
+        tr_smooth[i] = tr_smooth[i - 1] + (tr[i] - tr_smooth[i - 1]) / period
+        plus_dm_smooth[i] = plus_dm_smooth[i - 1] + (plus_dm[i] - plus_dm_smooth[i - 1]) / period
+        minus_dm_smooth[i] = minus_dm_smooth[i - 1] + (minus_dm[i] - minus_dm_smooth[i - 1]) / period
+
+    plus_di = np.zeros(n)
+    minus_di = np.zeros(n)
+    dx = np.zeros(n)
+
+    for i in range(period, n):
+        if tr_smooth[i] > 0:
+            plus_di[i] = 100.0 * plus_dm_smooth[i] / tr_smooth[i]
+            minus_di[i] = 100.0 * minus_dm_smooth[i] / tr_smooth[i]
+            di_sum = plus_di[i] + minus_di[i]
+            if di_sum > 0:
+                dx[i] = 100.0 * abs(plus_di[i] - minus_di[i]) / di_sum
+
+    adx = np.zeros(n)
+    adx[2 * period - 1] = np.mean(dx[period:2 * period])
+    for i in range(2 * period, n):
+        adx[i] = adx[i - 1] + (dx[i] - adx[i - 1]) / period
+
+    df["adx"] = adx
+    df["plus_di"] = plus_di
+    df["minus_di"] = minus_di
+
+    return df
