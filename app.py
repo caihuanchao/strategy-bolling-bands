@@ -30,6 +30,8 @@ from src.strategies.volume import VolumeAnalysisStrategy
 from src.strategies.volume_interpreter import interpret_volume_all
 from src.strategies.triple_confirm import TripleConfirmStrategy
 from src.strategies.triple_confirm_interpreter import interpret_triple_confirm_all
+from src.strategies.kdj_bollinger_atr import KdjBollingerAtrStrategy
+from src.strategies.kdj_bollinger_atr_interpreter import interpret_kdj_bb_atr_all
 
 app = Flask(__name__)
 
@@ -39,6 +41,7 @@ _registry.register(BollingerStrategy())
 _registry.register(DualMAStrategy())
 _registry.register(VolumeAnalysisStrategy())
 _registry.register(TripleConfirmStrategy())
+_registry.register(KdjBollingerAtrStrategy())
 
 # 全局数据状态
 _data_lock = threading.Lock()
@@ -273,6 +276,15 @@ def api_stocks():
         ma50_val = _safe_float(latest.get("ma50"))
         ma50_dir = str(latest.get("ma50_direction", "")) if "ma50_direction" in latest else None
 
+        # KDJ+布林带+ATR 策略专属字段
+        kdj_k = _safe_float(latest.get("kdj_k"))
+        kdj_d = _safe_float(latest.get("kdj_d"))
+        kdj_j = _safe_float(latest.get("kdj_j"))
+        atr_val = _safe_float(latest.get("atr"))
+        bandwidth_val = _safe_float(latest.get("bandwidth"))
+        env_val = str(latest.get("environment", "")) if "environment" in latest else None
+        env_label_val = str(latest.get("env_label", "")) if "env_label" in latest else None
+
         stocks_list.append(
             {
                 "symbol": symbol,
@@ -295,6 +307,13 @@ def api_stocks():
                 "adx": adx_val,
                 "ma50": ma50_val,
                 "ma50_direction": ma50_dir,
+                "kdj_k": kdj_k,
+                "kdj_d": kdj_d,
+                "kdj_j": kdj_j,
+                "atr": atr_val,
+                "bandwidth": bandwidth_val,
+                "environment": env_val,
+                "env_label": env_label_val,
             }
         )
 
@@ -464,7 +483,9 @@ def api_stock_detail(symbol):
                               "ema_fast", "ema_slow", "obv", "volume_ratio",
                               "signal_grade", "signal_grade_label", "ma50",
                               "adx", "macd_bottom_divergence", "rsi_bottom_divergence",
-                              "macd_top_divergence", "rsi_top_divergence"] if c in df_display.columns]
+                              "macd_top_divergence", "rsi_top_divergence",
+                              "kdj_k", "kdj_d", "kdj_j", "atr", "bandwidth",
+                              "environment", "env_label"] if c in df_display.columns]
     all_cols = cols + extra_cols
 
     history = df_display[all_cols].to_dict(orient="records")
@@ -513,9 +534,14 @@ def api_stock_detail(symbol):
     if current_strategy_id == "triple_confirm":
         triple_confirm_interpretation = interpret_triple_confirm_all(df)
 
+    # KDJ+布林带+ATR 策略专属解读
+    kdj_bb_atr_interpretation = None
+    if current_strategy_id == "kdj_bollinger_atr":
+        kdj_bb_atr_interpretation = interpret_kdj_bb_atr_all(df)
+
     # 收口突破检测（仅布林带策略）
     squeeze_data = None
-    if current_strategy_id not in ("dual_ma", "volume_analysis", "triple_confirm"):
+    if current_strategy_id not in ("dual_ma", "volume_analysis", "triple_confirm", "kdj_bollinger_atr"):
         df_squeeze = detect_squeeze_breakout(df)
         latest_sq = df_squeeze.iloc[-1]
         squeeze_data = {
@@ -553,6 +579,13 @@ def api_stock_detail(symbol):
             "adx": _safe_float(latest.get("adx")),
             "ma50": _safe_float(latest.get("ma50")),
             "ma50_direction": str(latest.get("ma50_direction", "")) if "ma50_direction" in latest else None,
+            "kdj_k": _safe_float(latest.get("kdj_k")),
+            "kdj_d": _safe_float(latest.get("kdj_d")),
+            "kdj_j": _safe_float(latest.get("kdj_j")),
+            "atr": _safe_float(latest.get("atr")),
+            "bandwidth": _safe_float(latest.get("bandwidth")),
+            "environment": str(latest.get("environment", "unknown")) if "environment" in latest else None,
+            "env_label": str(latest.get("env_label", "")) if "env_label" in latest else None,
         },
         "history": history,
         "interpretation": interpretation,
@@ -560,6 +593,7 @@ def api_stock_detail(symbol):
         "dual_ma_interpretation": dual_ma_interpretation,
         "volume_interpretation": volume_interpretation,
         "triple_confirm_interpretation": triple_confirm_interpretation,
+        "kdj_bb_atr_interpretation": kdj_bb_atr_interpretation,
         # 成交量策略专属字段（前端策略感知渲染用）
         "obv": _safe_float(latest.get("obv")),
         "conditions_met": int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0,
