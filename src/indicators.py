@@ -189,6 +189,108 @@ def calculate_all_indicators(
     return df
 
 
+def calculate_kdj(df: pd.DataFrame, n: int = 9) -> pd.DataFrame:
+    """
+    计算 KDJ 指标 (随机指标改良版)
+
+    Args:
+        df: 包含 high, low, close 列的 DataFrame
+        n: RSV 周期 (默认 9)
+
+    Returns:
+        添加了 kdj_k, kdj_d, kdj_j 列的 DataFrame
+    """
+    df = df.copy()
+    length = len(df)
+
+    k = np.full(length, np.nan)
+    d = np.full(length, np.nan)
+    j = np.full(length, np.nan)
+
+    if length < n:
+        df["kdj_k"] = k
+        df["kdj_d"] = d
+        df["kdj_j"] = j
+        return df
+
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+
+    # 初始 K/D 值 = 50
+    k_val = 50.0
+    d_val = 50.0
+
+    for i in range(length):
+        if i < n - 1:
+            k[i] = np.nan
+            d[i] = np.nan
+            j[i] = np.nan
+            continue
+
+        n_high = np.max(high[i - n + 1:i + 1])
+        n_low = np.min(low[i - n + 1:i + 1])
+
+        if n_high == n_low:
+            rsv = 50.0  # 避免除零，返回中性值
+        else:
+            rsv = (close[i] - n_low) / (n_high - n_low) * 100.0
+
+        k_val = 2.0 / 3.0 * k_val + 1.0 / 3.0 * rsv
+        d_val = 2.0 / 3.0 * d_val + 1.0 / 3.0 * k_val
+        j_val = 3.0 * k_val - 2.0 * d_val
+
+        k[i] = k_val
+        d[i] = d_val
+        j[i] = j_val
+
+    df["kdj_k"] = k
+    df["kdj_d"] = d
+    df["kdj_j"] = j
+
+    return df
+
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """
+    计算 ATR (平均真实波幅) — Wilder 平滑法
+
+    Args:
+        df: 包含 high, low, close 列的 DataFrame
+        period: ATR 周期 (默认 14)
+
+    Returns:
+        添加了 atr 列的 DataFrame
+    """
+    df = df.copy()
+    n = len(df)
+
+    if n < period + 1:
+        df["atr"] = np.nan
+        return df
+
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+
+    tr = np.zeros(n)
+    for i in range(1, n):
+        hl = high[i] - low[i]
+        hc = abs(high[i] - close[i - 1])
+        lc = abs(low[i] - close[i - 1])
+        tr[i] = max(hl, hc, lc)
+
+    # Wilder RMA 平滑
+    atr = np.zeros(n)
+    atr[period] = np.mean(tr[1:period + 1])
+    for i in range(period + 1, n):
+        atr[i] = atr[i - 1] + (tr[i] - atr[i - 1]) / period
+
+    df["atr"] = atr
+
+    return df
+
+
 def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
     计算 ADX (平均趋向指数) — Wilder 平滑法

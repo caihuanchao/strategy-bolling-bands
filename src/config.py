@@ -79,6 +79,32 @@ class Config:
     triple_confirm_rsi_overbought_exit: float = 75.0  # 超买出场阈值
     triple_confirm_volume_shrink_days: int = 3      # 缩量止跌检测天数
 
+    # === KDJ + 布林带 + ATR 策略配置（固定参数） ===
+    # KDJ
+    kdj_n: int = 9
+    kdj_overbought_k: float = 80.0
+    kdj_overbought_d: float = 70.0
+    kdj_overbought_j: float = 100.0
+    kdj_oversold_k: float = 20.0
+    kdj_oversold_d: float = 30.0
+    kdj_oversold_j: float = 0.0
+
+    # ATR
+    atr_period: int = 14
+    atr_stop_multiplier: float = 1.5  # 震荡环境止损倍数
+    atr_trend_stop_multiplier: float = 2.0  # 趋势环境止损倍数
+
+    # 环境判定阈值
+    bb_slope_threshold: float = 0.005  # 中轨斜率阈值（弧度），低于此值视为走平
+    atr_expand_threshold: float = 1.2  # ATR 扩张阈值（与5日前比）
+    squeeze_bandwidth_percentile: float = 0.10  # 带宽处于历史最低10%视为Squeeze
+    squeeze_lookback: int = 120  # Squeeze 检测回溯周期（约6个月日线）
+
+    # KDJ + BB + ATR 信号分级阈值
+    kdj_bb_atr_volume_a_threshold: float = 1.0   # A 级量比基础阈值
+    kdj_bb_atr_volume_s_threshold: float = 1.3   # S 级量比阈值
+    kdj_divergence_lookback: int = 60  # KDJ 背离检测回溯周期
+
 
 def get_config() -> Config:
     """获取配置实例"""
