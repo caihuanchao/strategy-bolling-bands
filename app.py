@@ -28,6 +28,8 @@ from src.strategies.dual_ma import DualMAStrategy
 from src.strategies.dual_ma_interpreter import interpret_dual_ma_all
 from src.strategies.volume import VolumeAnalysisStrategy
 from src.strategies.volume_interpreter import interpret_volume_all
+from src.strategies.triple_confirm import TripleConfirmStrategy
+from src.strategies.triple_confirm_interpreter import interpret_triple_confirm_all
 
 app = Flask(__name__)
 
@@ -36,6 +38,7 @@ _registry = StrategyRegistry()
 _registry.register(BollingerStrategy())
 _registry.register(DualMAStrategy())
 _registry.register(VolumeAnalysisStrategy())
+_registry.register(TripleConfirmStrategy())
 
 # 全局数据状态
 _data_lock = threading.Lock()
@@ -263,6 +266,13 @@ def api_stocks():
         pattern_lbl = _pattern_label(df)
         conditions_met = int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0
 
+        # 三重确认策略专属字段
+        signal_grade = str(latest.get("signal_grade", "NONE")) if "signal_grade" in latest and pd.notna(latest.get("signal_grade")) else None
+        signal_grade_label = str(latest.get("signal_grade_label", "")) if "signal_grade_label" in latest and pd.notna(latest.get("signal_grade_label")) else None
+        adx_val = _safe_float(latest.get("adx"))
+        ma50_val = _safe_float(latest.get("ma50"))
+        ma50_dir = str(latest.get("ma50_direction", "")) if "ma50_direction" in latest else None
+
         stocks_list.append(
             {
                 "symbol": symbol,
@@ -280,6 +290,11 @@ def api_stocks():
                 "trend": trend,
                 "pattern_label": pattern_lbl,
                 "conditions_met": conditions_met,
+                "signal_grade": signal_grade,
+                "signal_grade_label": signal_grade_label,
+                "adx": adx_val,
+                "ma50": ma50_val,
+                "ma50_direction": ma50_dir,
             }
         )
 
@@ -446,7 +461,10 @@ def api_stock_detail(symbol):
     cols = ["date", "open", "high", "low", "close", "volume"]
     extra_cols = [c for c in ["ma_mid", "boll_up", "boll_down", "buy_signal", "sell_signal",
                               "macd", "macd_signal", "macd_histogram", "rsi",
-                              "ema_fast", "ema_slow", "obv", "volume_ratio"] if c in df_display.columns]
+                              "ema_fast", "ema_slow", "obv", "volume_ratio",
+                              "signal_grade", "signal_grade_label", "ma50",
+                              "adx", "macd_bottom_divergence", "rsi_bottom_divergence",
+                              "macd_top_divergence", "rsi_top_divergence"] if c in df_display.columns]
     all_cols = cols + extra_cols
 
     history = df_display[all_cols].to_dict(orient="records")
@@ -490,9 +508,14 @@ def api_stock_detail(symbol):
     if current_strategy_id == "volume_analysis":
         volume_interpretation = interpret_volume_all(df)
 
+    # 三重确认策略专属解读
+    triple_confirm_interpretation = None
+    if current_strategy_id == "triple_confirm":
+        triple_confirm_interpretation = interpret_triple_confirm_all(df)
+
     # 收口突破检测（仅布林带策略）
     squeeze_data = None
-    if current_strategy_id not in ("dual_ma", "volume_analysis"):
+    if current_strategy_id not in ("dual_ma", "volume_analysis", "triple_confirm"):
         df_squeeze = detect_squeeze_breakout(df)
         latest_sq = df_squeeze.iloc[-1]
         squeeze_data = {
@@ -525,12 +548,18 @@ def api_stock_detail(symbol):
             "macd_signal": latest_sanitized["macd_signal"],
             "macd_histogram": latest_sanitized["macd_histogram"],
             "rsi": latest_sanitized["rsi"],
+            "signal_grade": str(latest.get("signal_grade", "NONE")) if "signal_grade" in latest and pd.notna(latest.get("signal_grade")) else None,
+            "signal_grade_label": str(latest.get("signal_grade_label", "")) if "signal_grade_label" in latest and pd.notna(latest.get("signal_grade_label")) else None,
+            "adx": _safe_float(latest.get("adx")),
+            "ma50": _safe_float(latest.get("ma50")),
+            "ma50_direction": str(latest.get("ma50_direction", "")) if "ma50_direction" in latest else None,
         },
         "history": history,
         "interpretation": interpretation,
         "squeeze": squeeze_data,
         "dual_ma_interpretation": dual_ma_interpretation,
         "volume_interpretation": volume_interpretation,
+        "triple_confirm_interpretation": triple_confirm_interpretation,
         # 成交量策略专属字段（前端策略感知渲染用）
         "obv": _safe_float(latest.get("obv")),
         "conditions_met": int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0,
@@ -586,14 +615,26 @@ def _safe_float(val, default=None):
 
 
 def _sanitize_json(obj):
-    """递归清理对象中的 NaN/Inf 为 None（JSON 兼容）"""
+    """递归清理对象中的 NaN/Inf 和 numpy 类型（JSON 兼容）"""
     import math
+    import numpy as np
     if isinstance(obj, dict):
         return {k: _sanitize_json(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_sanitize_json(v) for v in obj]
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return None
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        val = float(obj)
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+    if isinstance(obj, np.ndarray):
+        return _sanitize_json(obj.tolist())
     return obj
 
 
