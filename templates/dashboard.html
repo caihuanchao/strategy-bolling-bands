@@ -257,7 +257,12 @@
             'dual_ma': { buy: '买入信号 (金叉)', sell: '卖出信号 (死叉)', enhanced: '增强信号 (>1.2x 量)' },
             'volume_analysis': { buy: '买入信号 (量价确认)', sell: '卖出信号 (量价背离)', enhanced: '增强信号 (≥2条件共振)' },
             'triple_confirm': { buy: '买入信号 (三重确认)', sell: '卖出信号 (三重确认)', enhanced: 'A/S级信号' },
+            'kdj_bollinger_atr': { buy: '买入信号 (KDJ+BB+ATR)', sell: '卖出信号 (KDJ+BB+ATR)', enhanced: 'A/S级信号' },
         };
+
+        const envLabels = { 'range': '震荡格局', 'trend': '趋势市场', 'squeeze': '蓄势突破' };
+        const envColors = { 'range': '#3b82f6', 'trend': '#16a34a', 'squeeze': '#e67e22' };
+        const envBgColors = { 'range': '#eff6ff', 'trend': '#dcfce7', 'squeeze': '#fef3c7' };
 
         const gradeLabels = { 'S': 'S级-高确信', 'A': 'A级-标准', 'B': 'B级-试探', 'C': 'C级-仅观察' };
         const gradeColors = { 'S': '#7c3aed', 'A': '#16a34a', 'B': '#e67e22', 'C': '#94a3b8' };
@@ -464,9 +469,12 @@
             var isDualMA = currentStrategyId === 'dual_ma';
             var isVolumeAnalysis = currentStrategyId === 'volume_analysis';
             var isTripleConfirm = currentStrategyId === 'triple_confirm';
+            var isKdjBbAtr = currentStrategyId === 'kdj_bollinger_atr';
             var headerHtml = '<tr><th>代码</th><th>名称</th><th>现价</th>';
             if (isTripleConfirm) {
                 headerHtml += '<th>信号等级</th><th>ADX</th><th>量比</th>';
+            } else if (isKdjBbAtr) {
+                headerHtml += '<th>信号等级</th><th>环境</th><th>KDJ-J</th><th>ATR</th>';
             } else if (isDualMA) {
                 headerHtml += '<th>快线(EMA)</th><th>慢线(EMA)</th><th>趋势</th>';
             } else if (isVolumeAnalysis) {
@@ -500,6 +508,25 @@
                     rowHtml += '<td><span style="background:' + bg + ';color:' + gc + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + gradeStyle + '">' + gl + '</span></td>' +
                         '<td style="color:' + adxClr + ';font-weight:600">' + adxStr + '</td>' +
                         '<td>' + vrStr + '</td>';
+                } else if (isKdjBbAtr) {
+                    var gd = s.signal_grade || 'NONE';
+                    var baseGd = gd.split('_')[0];
+                    var gc = gradeColors[baseGd] || '#94a3b8';
+                    var bg = gradeBgColors[baseGd] || '#f1f5f9';
+                    var gl = gradeLabels[baseGd] || gd;
+                    var isCObserve = baseGd === 'C' || gd.includes('_weekly_against');
+                    var envKey = s.environment || 'unknown';
+                    var envName = envLabels[envKey] || envKey;
+                    var envClr = envColors[envKey] || '#94a3b8';
+                    var envBg = envBgColors[envKey] || '#f1f5f9';
+                    var kdjJ = s.kdj_j != null ? s.kdj_j.toFixed(1) : '-';
+                    var kdjJColor = s.kdj_j != null ? (s.kdj_j > 100 ? '#dc2626' : s.kdj_j < 0 ? '#16a34a' : '#333') : '#999';
+                    var atrStr = s.atr != null ? s.atr.toFixed(2) : '-';
+                    var gradeStyle = isCObserve ? 'opacity:0.55' : '';
+                    rowHtml += '<td><span style="background:' + bg + ';color:' + gc + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + gradeStyle + '">' + gl + '</span></td>' +
+                        '<td><span style="background:' + envBg + ';color:' + envClr + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + envName + '</span></td>' +
+                        '<td style="color:' + kdjJColor + ';font-weight:600">' + kdjJ + '</td>' +
+                        '<td>' + atrStr + '</td>';
                 } else if (isDualMA) {
                     var ef = s.ema_fast ? s.ema_fast.toFixed(2) : '-';
                     var es = s.ema_slow ? s.ema_slow.toFixed(2) : '-';
@@ -542,6 +569,7 @@
                 var isDualMA = data.strategy_id === 'dual_ma';
                 var isVolumeAnalysis = data.strategy_id === 'volume_analysis';
                 var isTripleConfirm = data.strategy_id === 'triple_confirm';
+                var isKdjBbAtr = data.strategy_id === 'kdj_bollinger_atr';
                 const histArr = data.history || [];
 
                 // 布林带位置
@@ -571,6 +599,11 @@
                     var gd = l.signal_grade || 'NONE';
                     var baseGd = gd.split('_')[0];
                     sigDesc = '信号等级: ' + (gradeLabels[baseGd] || gd) + ' | ADX: ' + (l.adx != null ? l.adx.toFixed(1) : '-') + ' | MA50方向: ' + (l.ma50_direction || '-');
+                } else if (isKdjBbAtr) {
+                    var gd = l.signal_grade || 'NONE';
+                    var baseGd = gd.split('_')[0];
+                    var envStr = l.env_label || (envLabels[l.environment] || l.environment || '未知');
+                    sigDesc = '信号等级: ' + (gradeLabels[baseGd] || gd) + ' | 环境: ' + envStr + ' | KDJ-J: ' + (l.kdj_j != null ? l.kdj_j.toFixed(1) : '-') + ' | ATR: ' + (l.atr != null ? l.atr.toFixed(2) : '-');
                 } else {
                     sigDesc = '上轨 ¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + ' / 下轨 ¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-');
                 }
@@ -616,6 +649,21 @@
                     html += '<div class="detail-stat"><div class="val" style="color:' + gcStat + ';font-weight:700">' + glStat + '</div><div class="lbl">信号等级</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + adxClrStat + '">' + adxDisp + '</div><div class="lbl">ADX</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + ma50Clr + '">' + ma50Dir + '</div><div class="lbl">MA50方向</div></div>';
+                } else if (isKdjBbAtr) {
+                    var gdStat = l.signal_grade || 'NONE';
+                    var baseGdStat = gdStat.split('_')[0];
+                    var gcStat = gradeColors[baseGdStat] || '#94a3b8';
+                    var glStat = gradeLabels[baseGdStat] || gdStat;
+                    var envKey = l.environment || 'unknown';
+                    var envName = l.env_label || (envLabels[envKey] || envKey);
+                    var envClr = envColors[envKey] || '#94a3b8';
+                    var kdjJVal = l.kdj_j != null ? l.kdj_j.toFixed(1) : '-';
+                    var kdjJColor = l.kdj_j != null ? (l.kdj_j > 100 ? '#dc2626' : l.kdj_j < 0 ? '#16a34a' : '#333') : '#999';
+                    var atrVal = l.atr != null ? l.atr.toFixed(2) : '-';
+                    html += '<div class="detail-stat"><div class="val" style="color:' + gcStat + ';font-weight:700">' + glStat + '</div><div class="lbl">信号等级</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + envClr + ';font-weight:600">' + envName + '</div><div class="lbl">市场环境</div></div>' +
+                        '<div class="detail-stat"><div class="val" style="color:' + kdjJColor + ';font-weight:600">' + kdjJVal + '</div><div class="lbl">KDJ-J</div></div>' +
+                        '<div class="detail-stat"><div class="val">' + atrVal + '</div><div class="lbl">ATR</div></div>';
                 } else {
                     html += '<div class="detail-stat"><div class="val">¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + '</div><div class="lbl">布林上轨</div></div>' +
                         '<div class="detail-stat"><div class="val">¥' + (l.boll_mid ? l.boll_mid.toFixed(2) : '-') + '</div><div class="lbl">布林中轨</div></div>' +
@@ -654,18 +702,18 @@
                     '</div>';
 
                 // 图表（三重确认策略使用三面板500px高度，其余双面板400px）
-                var chartHeight = isTripleConfirm ? '500px' : '400px';
+                var chartHeight = (isTripleConfirm || isKdjBbAtr) ? '500px' : '400px';
                 html += '<canvas class="mini-chart" id="detail-chart" style="height:' + chartHeight + '"></canvas>';
                 html += '<div class="chart-legend" id="detail-chart-legend"></div>';
 
                 // 收口突破卡片（仅布林带策略）
-                if (!isDualMA && !isVolumeAnalysis && !isTripleConfirm && data.squeeze && data.squeeze.is_squeeze !== undefined) {
+                if (!isDualMA && !isVolumeAnalysis && !isTripleConfirm && !isKdjBbAtr && data.squeeze && data.squeeze.is_squeeze !== undefined) {
                     html += renderSqueezeCard(data.squeeze);
                 }
 
                 // 技术指标深度解读
                 if (data.interpretation) {
-                    html += renderInterpretation(data.interpretation, isDualMA, isVolumeAnalysis, data.dual_ma_interpretation, data.volume_interpretation, data.triple_confirm_interpretation, isTripleConfirm);
+                    html += renderInterpretation(data.interpretation, isDualMA, isVolumeAnalysis, data.dual_ma_interpretation, data.volume_interpretation, data.triple_confirm_interpretation, isTripleConfirm, data.kdj_bb_atr_interpretation, isKdjBbAtr);
                 }
 
                 body.innerHTML = html;
@@ -689,7 +737,9 @@
             canvas.style.height = '400px';
             const w = canvas.clientWidth;
             var isTripleConfirmChart = currentStrategyId === 'triple_confirm';
-            var chartH = isTripleConfirmChart ? 500 : 400;
+            var isKdjBbAtrChart = currentStrategyId === 'kdj_bollinger_atr';
+            var isThreePanelChart = isTripleConfirmChart || isKdjBbAtrChart;
+            var chartH = isThreePanelChart ? 500 : 400;
             canvas.width = w * dpr;
             canvas.height = chartH * dpr;
             ctx.scale(dpr, dpr);
@@ -699,7 +749,7 @@
             var availableH = h - pad.top - pad.bottom;
             // 三重确认三面板: 50/25/25, 其余双面板: 62/38
             var priceH, macdH, rsiH, separatorY, rsiSeparatorY;
-            if (isTripleConfirmChart) {
+            if (isThreePanelChart) {
                 priceH = availableH * 0.50;
                 macdH = availableH * 0.25;
                 rsiH = availableH * 0.25;
@@ -708,7 +758,7 @@
                 macdH = availableH * 0.38;
             }
             separatorY = pad.top + priceH;
-            rsiSeparatorY = isTripleConfirmChart ? separatorY + macdH : null;
+            rsiSeparatorY = isThreePanelChart ? separatorY + macdH : null;
 
             const closes = history.map(d => d.close);
             const maMids = history.map(d => d.ma_mid || null);
@@ -718,6 +768,11 @@
             const emaSlows = history.map(d => d.ema_slow || null);
             const ma50s = history.map(d => d.ma50 || null);
             const rsis = history.map(d => d.rsi || null);
+            const kdjKs = history.map(d => d.kdj_k || null);
+            const kdjDs = history.map(d => d.kdj_d || null);
+            const kdjJs = history.map(d => d.kdj_j || null);
+            const atrs = history.map(d => d.atr || null);
+            const volRatios = history.map(d => d.volume_ratio || null);
 
             const allVals = [...closes, ...maMids.filter(v => v), ...bollUps.filter(v => v), ...bollDowns.filter(v => v),
                             ...emaFasts.filter(v => v), ...emaSlows.filter(v => v)];
@@ -732,7 +787,7 @@
             var isDualMAChart = currentStrategyId === 'dual_ma';
             var isVolumeAnalysisChart = currentStrategyId === 'volume_analysis';
             // 布林带填充（仅布林带策略，不适用 dual_ma/volume_analysis/triple_confirm）
-            if (!isDualMAChart && !isVolumeAnalysisChart && !isTripleConfirmChart) {
+            if (!isDualMAChart && !isVolumeAnalysisChart && !isThreePanelChart) {
                 ctx.fillStyle = 'rgba(128,128,128,0.08)';
                 ctx.beginPath();
                 for (let i = 0; i < history.length; i++) {
@@ -802,6 +857,42 @@
                     if (ma50s[i] == null) continue;
                     if (!m50s) { ctx.moveTo(xScale(i), yScale(ma50s[i])); m50s = true; }
                     else ctx.lineTo(xScale(i), yScale(ma50s[i]));
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else if (isKdjBbAtrChart) {
+                // 布林带上中下轨 + MA20
+                // 中轨
+                ctx.strokeStyle = '#ff7f0e';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                let midS = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (maMids[i] == null) continue;
+                    if (!midS) { ctx.moveTo(xScale(i), yScale(maMids[i])); midS = true; }
+                    else ctx.lineTo(xScale(i), yScale(maMids[i]));
+                }
+                ctx.stroke();
+                // 上轨
+                ctx.strokeStyle = '#2ca02c';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([2, 3]);
+                ctx.beginPath();
+                let upS = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (bollUps[i] == null) continue;
+                    if (!upS) { ctx.moveTo(xScale(i), yScale(bollUps[i])); upS = true; }
+                    else ctx.lineTo(xScale(i), yScale(bollUps[i]));
+                }
+                ctx.stroke();
+                // 下轨
+                ctx.strokeStyle = '#2ca02c';
+                ctx.beginPath();
+                let dnS = false;
+                for (let i = 0; i < history.length; i++) {
+                    if (bollDowns[i] == null) continue;
+                    if (!dnS) { ctx.moveTo(xScale(i), yScale(bollDowns[i])); dnS = true; }
+                    else ctx.lineTo(xScale(i), yScale(bollDowns[i]));
                 }
                 ctx.stroke();
                 ctx.setLineDash([]);
@@ -1085,6 +1176,162 @@
                     ctx.fillText('100', pad.left - 6, rsiTop + 10);
                     ctx.fillText('0', pad.left - 6, rsiBot - 2);
                 }
+            } else if (isKdjBbAtrChart) {
+                // ── 中面板: KDJ (K/D/J 三线) ──
+                const kdjTop = separatorY + 5;
+                const kdjBot = rsiSeparatorY;
+                const kdjH = kdjBot - kdjTop;
+                const kdjNonnull = kdjKs.filter(v => v !== null);
+                if (kdjNonnull.length > 1) {
+                    ctx.strokeStyle = '#ccc';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, separatorY);
+                    ctx.lineTo(w - pad.right, separatorY);
+                    ctx.stroke();
+
+                    const kdjMin = 0;
+                    const kdjMax = 100;
+                    const kdjRange = 100;
+                    const kdjY = v => kdjTop + kdjH - ((v - kdjMin) / kdjRange) * kdjH;
+
+                    // 超买线 80
+                    ctx.strokeStyle = '#dc2626';
+                    ctx.setLineDash([3, 3]);
+                    ctx.lineWidth = 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, kdjY(80));
+                    ctx.lineTo(w - pad.right, kdjY(80));
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#dc2626';
+                    ctx.font = '9px sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('80', w - pad.right + 4, kdjY(80) + 4);
+
+                    // 超卖线 20
+                    ctx.strokeStyle = '#16a34a';
+                    ctx.setLineDash([3, 3]);
+                    ctx.lineWidth = 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, kdjY(20));
+                    ctx.lineTo(w - pad.right, kdjY(20));
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#16a34a';
+                    ctx.fillText('20', w - pad.right + 4, kdjY(20) + 4);
+
+                    // K 线 (蓝色实线)
+                    ctx.strokeStyle = '#1f77b4';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    let kls = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (kdjKs[i] == null) continue;
+                        if (!kls) { ctx.moveTo(xScale(i), kdjY(kdjKs[i])); kls = true; }
+                        else ctx.lineTo(xScale(i), kdjY(kdjKs[i]));
+                    }
+                    ctx.stroke();
+
+                    // D 线 (橙色实线)
+                    ctx.strokeStyle = '#ff7f0e';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    let dls = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (kdjDs[i] == null) continue;
+                        if (!dls) { ctx.moveTo(xScale(i), kdjY(kdjDs[i])); dls = true; }
+                        else ctx.lineTo(xScale(i), kdjY(kdjDs[i]));
+                    }
+                    ctx.stroke();
+
+                    // J 线 (紫色虚线)
+                    ctx.strokeStyle = '#8e44ad';
+                    ctx.setLineDash([2, 2]);
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    let jls = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (kdjJs[i] == null) continue;
+                        if (!jls) { ctx.moveTo(xScale(i), kdjY(kdjJs[i])); jls = true; }
+                        else ctx.lineTo(xScale(i), kdjY(kdjJs[i]));
+                    }
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // KDJ Y轴
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('100', pad.left - 6, kdjTop + 10);
+                    ctx.fillText('0', pad.left - 6, kdjBot - 2);
+                }
+
+                // ── 下面板: ATR + 量比 ──
+                const atrTop = rsiSeparatorY + 5;
+                const atrBot = h - pad.bottom;
+                const atrH = atrBot - atrTop;
+                const atrNonnull = atrs.filter(v => v !== null);
+                if (atrNonnull.length > 1) {
+                    ctx.strokeStyle = '#ccc';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, rsiSeparatorY);
+                    ctx.lineTo(w - pad.right, rsiSeparatorY);
+                    ctx.stroke();
+
+                    const atrMin = 0;
+                    const atrMax = Math.max(...atrNonnull);
+                    const atrRange = (atrMax - atrMin) || 1;
+                    const atrY = v => atrTop + atrH - ((v - atrMin) / atrRange) * atrH;
+
+                    // ATR 面积图
+                    ctx.fillStyle = 'rgba(31,119,180,0.15)';
+                    ctx.strokeStyle = '#1f77b4';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    let asStarted = false;
+                    for (let i = 0; i < history.length; i++) {
+                        if (atrs[i] == null) continue;
+                        if (!asStarted) { ctx.moveTo(xScale(i), atrTop + atrH); asStarted = true; }
+                        ctx.lineTo(xScale(i), atrY(atrs[i]));
+                    }
+                    if (asStarted) {
+                        ctx.lineTo(xScale(history.length - 1), atrTop + atrH);
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.beginPath();
+                        let ls2 = false;
+                        for (let i = 0; i < history.length; i++) {
+                            if (atrs[i] == null) continue;
+                            if (!ls2) { ctx.moveTo(xScale(i), atrY(atrs[i])); ls2 = true; }
+                            else ctx.lineTo(xScale(i), atrY(atrs[i]));
+                        }
+                        ctx.stroke();
+                    }
+
+                    // 量比柱状图叠加（右轴）
+                    const vrNonnull = volRatios.filter(v => v !== null);
+                    if (vrNonnull.length > 0) {
+                        const vrMax = Math.max(3, ...vrNonnull);
+                        const barW2 = Math.max(1, pw / history.length * 0.5);
+                        for (let i = 0; i < history.length; i++) {
+                            const vr = volRatios[i];
+                            if (vr == null) continue;
+                            const barH2 = (vr / vrMax) * atrH * 0.5;
+                            const x = xScale(i);
+                            ctx.fillStyle = vr >= 1.5 ? 'rgba(220,38,38,0.4)' : vr >= 1.0 ? 'rgba(22,163,74,0.3)' : 'rgba(149,165,166,0.2)';
+                            ctx.fillRect(x - barW2 / 2, atrTop + atrH - barH2, barW2, Math.max(1, barH2));
+                        }
+                    }
+
+                    // ATR Y轴
+                    ctx.fillStyle = '#95a5a6';
+                    ctx.font = '10px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(atrMax.toFixed(2), pad.left - 6, atrTop + 10);
+                    ctx.fillText('0', pad.left - 6, atrBot - 2);
+                }
             } else {
                 const macdTop = lowerTop;
                 const macdBot = lowerBot;
@@ -1291,6 +1538,20 @@
                     { type: 'dot', color: '#e74c3c', label: '买入' },
                     { type: 'dot', color: '#27ae60', label: '卖出' },
                 ];
+            } else if (strategyId === 'kdj_bollinger_atr') {
+                items = [
+                    { type: 'line', color: '#1f77b4', label: '收盘价' },
+                    { type: 'line', color: '#2ca02c', label: '布林上/下轨' },
+                    { type: 'dash', color: '#ff7f0e', label: '布林中轨(MA20)' },
+                    { type: 'line', color: '#1f77b4', label: 'K线(KDJ)' },
+                    { type: 'line', color: '#ff7f0e', label: 'D线(KDJ)' },
+                    { type: 'dash', color: '#8e44ad', label: 'J线(KDJ)' },
+                    { type: 'dash', color: '#dc2626', label: '超买80' },
+                    { type: 'dash', color: '#16a34a', label: '超卖20' },
+                    { type: 'line', color: '#1f77b4', label: 'ATR(面积)' },
+                    { type: 'dot', color: '#e74c3c', label: '买入' },
+                    { type: 'dot', color: '#27ae60', label: '卖出' },
+                ];
             }
             var html = '';
             for (var i = 0; i < items.length; i++) {
@@ -1312,7 +1573,7 @@
             el.innerHTML = html;
         }
 
-        function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp, tripleConfirmInterp, isTripleConfirm) {
+        function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp, tripleConfirmInterp, isTripleConfirm, kdjBbAtrInterp, isKdjBbAtr) {
             if (!interp) return '';
             var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
 
@@ -1540,6 +1801,18 @@
                 });
             }
 
+            // KDJ+BB+ATR interpretation cards
+            if (isKdjBbAtr && kdjBbAtrInterp && !kdjBbAtrInterp.error) {
+                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">KDJ+布林带+ATR 策略分析</h3>';
+                html += _renderTripleCard('environment', '🌍 市场环境', 'interp-bollinger', kdjBbAtrInterp.environment, 'env');
+                html += _renderTripleCard('signal_grade', '📊 信号分级', 'interp-macd', kdjBbAtrInterp.signal_grade, 'grade');
+                html += _renderTripleCard('kdj_dimension', '📈 KDJ 维度', 'interp-rsi', kdjBbAtrInterp.kdj_dimension, 'kdj');
+                html += _renderTripleCard('bollinger_dimension', '📐 布林带维度', 'interp-bollinger', kdjBbAtrInterp.bollinger_dimension, 'bb');
+                html += _renderTripleCard('atr_dimension', '📏 ATR 波动率', 'interp-macd', kdjBbAtrInterp.atr_dimension, 'atr');
+                html += _renderTripleCard('exit_triggers', '⚠️ 出场条件', 'interp-rsi', kdjBbAtrInterp.exit_triggers, 'exit');
+                html += _renderTripleCard('trading_advice', '💡 操作建议', 'interp-macd', kdjBbAtrInterp.trading_advice, 'advice');
+            }
+
             // Triple Confirm interpretation cards
             if (isTripleConfirm && tripleConfirmInterp && !tripleConfirmInterp.error) {
                 html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">三重确认策略分析</h3>';
@@ -1632,6 +1905,48 @@
                 if (data.exit_advice) card += '<div class="interp-desc"><strong>出场:</strong> ' + data.exit_advice + '</div>';
                 if (data.stop_loss_suggestion) card += '<div class="interp-desc"><strong>止损:</strong> ' + data.stop_loss_suggestion + '</div>';
                 if (data.rsi_warning) card += '<div class="interp-desc" style="color:#e67e22">' + data.rsi_warning + '</div>';
+                if (data.env_advice) card += '<div class="interp-desc"><strong>环境:</strong> ' + data.env_advice + '</div>';
+                if (data.kdj_warning) card += '<div class="interp-desc" style="color:#e67e22">' + data.kdj_warning + '</div>';
+            } else if (cardType === 'env') {
+                var envClr = envColors[data.status] || '#94a3b8';
+                card += '<div class="interp-metrics">' +
+                    '<span class="interp-metric" style="color:' + envClr + ';font-weight:700;font-size:16px">' + (data.status_label || '-') + '</span>' +
+                    '<span class="interp-metric"><strong>模式:</strong> ' + (data.mode || '-') + '</span>' +
+                    (data.mid_slope ? '<span class="interp-metric">中轨: ' + data.mid_slope + '</span>' : '') +
+                    '</div>';
+                if (data.mode_detail) card += '<div class="interp-desc" style="font-weight:600">' + data.mode_detail + '</div>';
+                if (data.caution) card += '<div class="interp-desc" style="color:#e67e22">⚠ ' + data.caution + '</div>';
+                if (data.weekly_note) card += '<div class="interp-desc"><strong>周线:</strong> ' + data.weekly_note + '</div>';
+            } else if (cardType === 'kdj') {
+                var jColor = (data.j != null && data.j > 100) ? '#dc2626' : (data.j != null && data.j < 0) ? '#16a34a' : '#333';
+                card += '<div class="interp-metrics">' +
+                    '<span class="interp-metric"><strong>K:</strong> ' + (data.k != null ? data.k.toFixed(2) : '-') + '</span>' +
+                    '<span class="interp-metric"><strong>D:</strong> ' + (data.d != null ? data.d.toFixed(2) : '-') + '</span>' +
+                    '<span class="interp-metric" style="color:' + jColor + ';font-weight:600">J: ' + (data.j != null ? data.j.toFixed(2) : '-') + '</span>' +
+                    '<span class="interp-metric"><strong>' + (data.status_label || '-') + '</strong></span>' +
+                    '</div>';
+                if (data.j_note) card += '<div class="interp-desc">' + data.j_note + '</div>';
+                if (data.cross_detail) card += '<div class="interp-desc" style="font-weight:600">' + data.cross_detail + '</div>';
+                if (data.divergence_detail) card += '<div class="interp-desc" style="color:#dc2626">' + data.divergence_detail + '</div>';
+            } else if (cardType === 'bb') {
+                card += '<div class="interp-metrics">' +
+                    '<span class="interp-metric"><strong>位置:</strong> ' + (data.status_label || '-') + '</span>' +
+                    (data.bandwidth != null ? '<span class="interp-metric">带宽: ' + data.bandwidth.toFixed(2) + '%</span>' : '') +
+                    '<span class="interp-metric"><strong>收盘:</strong> ¥' + (data.close != null ? data.close.toFixed(2) : '-') + '</span>' +
+                    '</div>';
+                if (data.bandwidth_note) card += '<div class="interp-desc">' + data.bandwidth_note + '</div>';
+                if (data.slope_detail) card += '<div class="interp-desc" style="font-weight:600">' + data.slope_detail + '</div>';
+                if (data.patterns && data.patterns.length > 0) {
+                    data.patterns.forEach(function(p) { card += '<div class="interp-desc">形态: ' + p + '</div>'; });
+                }
+            } else if (cardType === 'atr') {
+                var atrWarn = data.trend && data.trend.includes('异常') ? 'color:#dc2626;font-weight:600' : '';
+                card += '<div class="interp-metrics">' +
+                    '<span class="interp-metric"><strong>ATR:</strong> ' + (data.value != null ? data.value.toFixed(2) : '-') + '</span>' +
+                    '<span class="interp-metric" style="' + atrWarn + '">' + (data.trend || '-') + '</span>' +
+                    '<span class="interp-metric">' + (data.status_label || '') + '</span>' +
+                    '</div>';
+                if (data.stop_note) card += '<div class="interp-desc" style="font-weight:600;color:#16a34a">' + data.stop_note + '</div>';
             }
 
             if (data.detail) card += '<div class="interp-summary">' + data.detail + '</div>';
@@ -1755,7 +2070,12 @@
         }
 
         function renderSliders(schema, values) {
-            if (!schema || schema.length === 0) return '<p style="text-align:center;padding:24px;color:#95a5a6;">使用固定经典参数: MACD(12/26/9) + RSI(14) + 成交量MA20，无需调整</p>';
+            if (!schema || schema.length === 0) {
+                var fixedMsg = currentStrategyId === 'kdj_bollinger_atr'
+                    ? '使用固定经典参数: KDJ(9,3,3) + ATR(14) + 布林带(20,2)，三环境自适应切换'
+                    : '使用固定经典参数: MACD(12/26/9) + RSI(14) + 成交量MA20，无需调整';
+                return '<p style="text-align:center;padding:24px;color:#95a5a6;">' + fixedMsg + '</p>';
+            }
             var html = '';
             schema.forEach(function(p) {
                 var val = values[p.key] !== undefined ? values[p.key] : p.default;
