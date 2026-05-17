@@ -32,6 +32,8 @@ from src.strategies.triple_confirm import TripleConfirmStrategy
 from src.strategies.triple_confirm_interpreter import interpret_triple_confirm_all
 from src.strategies.kdj_bollinger_atr import KdjBollingerAtrStrategy
 from src.strategies.kdj_bollinger_atr_interpreter import interpret_kdj_bb_atr_all
+from src.optimizer.grid_search import GridSearchOptimizer
+from src.optimizer.cache import load_cached_result, save_cached_result, _make_cache_key
 
 app = Flask(__name__)
 
@@ -62,6 +64,10 @@ _data_state = {
 _params_lock = threading.Lock()
 _current_params = {"n": 20, "m": 2.0}
 _current_strategy_id = "bollinger"
+
+# 回测优化任务状态
+_optimize_jobs = {}  # {job_id: {status, progress, total, result, error}}
+_optimize_lock = threading.Lock()
 
 
 def _get_strategy():
@@ -601,6 +607,168 @@ def api_stock_detail(symbol):
     }
 
     return jsonify(_sanitize_json(response_data))
+
+
+# ─── 回测优化 API ──────────────────────────────────────
+
+@app.route("/api/backtest/strategies")
+def api_backtest_strategies():
+    """返回所有策略及其可优化参数"""
+    strategies = []
+    for s in _registry._strategies.values():
+        optimizable_params = s.get_optimizable_params()
+        strategies.append({
+            "id": s.strategy_id,
+            "name": s.strategy_name,
+            "optimizable": len(optimizable_params) > 0,
+            "optimizable_params": [p.to_dict() for p in optimizable_params],
+        })
+    return jsonify(strategies)
+
+
+@app.route("/api/backtest/optimize", methods=["POST"])
+def api_backtest_optimize():
+    """启动异步参数优化任务"""
+    import uuid
+
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol", "").strip()
+    strategy_id = body.get("strategy_id", "").strip()
+    param_overrides = body.get("param_overrides", None)
+
+    if not symbol or not strategy_id:
+        return jsonify({"error": "symbol 和 strategy_id 不能为空"}), 400
+
+    strategy = _registry.get(strategy_id)
+    if not strategy:
+        return jsonify({"error": f"未知策略: {strategy_id}"}), 400
+
+    with _data_lock:
+        if symbol not in _data_state["data_dict"]:
+            return jsonify({"error": f"股票 {symbol} 不在自选股中"}), 404
+        name, df = _data_state["data_dict"][symbol]
+
+    config = get_config()
+
+    # 构建参数空间
+    base_params = strategy.get_optimizable_params()
+    if not base_params:
+        return jsonify({"error": f"策略 {strategy.strategy_name} 无可优化参数"}), 400
+
+    param_space = []
+    for p in base_params:
+        p_dict = p.to_dict()
+        if param_overrides and p.key in param_overrides:
+            override = param_overrides[p.key]
+            p_dict["min"] = override.get("min", p_dict["min"])
+            p_dict["max"] = override.get("max", p_dict["max"])
+            p_dict["step"] = override.get("step", p_dict["step"])
+        param_space.append(p_dict)
+
+    # 重新构造 OptimizableParam 列表传给优化器
+    from src.optimizer import OptimizableParam
+    opt_params = [
+        OptimizableParam(
+            key=p["key"], label=p["label"], type=p["type"],
+            min=p["min"], max=p["max"], step=p["step"], default=p["default"],
+        )
+        for p in param_space
+    ]
+
+    job_id = uuid.uuid4().hex[:8]
+
+    with _optimize_lock:
+        _optimize_jobs[job_id] = {"status": "running", "progress": 0, "total": 0, "result": None, "error": None}
+
+    threading.Thread(
+        target=_run_optimize_job,
+        args=(job_id, symbol, name, strategy, df, opt_params, config.initial_capital),
+        daemon=True,
+    ).start()
+
+    return jsonify({"job_id": job_id, "status": "started"})
+
+
+@app.route("/api/backtest/optimize/<job_id>")
+def api_backtest_optimize_status(job_id):
+    """轮询优化任务状态"""
+    with _optimize_lock:
+        job = _optimize_jobs.get(job_id)
+
+    if not job:
+        return jsonify({"error": "无效的 job_id"}), 404
+
+    response_data = {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress": job["progress"],
+        "total": job["total"],
+    }
+
+    if job["status"] == "done" and job["result"]:
+        response_data["result"] = _sanitize_json(job["result"].to_dict())
+    elif job["status"] == "error":
+        response_data["error"] = job["error"]
+
+    return jsonify(response_data)
+
+
+def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_capital):
+    """后台线程：执行参数优化"""
+    try:
+        # 检查缓存
+        import json as _json
+        params_json = _json.dumps([p.to_dict() for p in param_space], sort_keys=True)
+        first_date = str(df["date"].iloc[0]) if "date" in df.columns else ""
+        last_date = str(df["date"].iloc[-1]) if "date" in df.columns else ""
+        cache_key = _make_cache_key(strategy.strategy_id, symbol, params_json, first_date, last_date)
+
+        cached = load_cached_result(cache_key)
+        if cached is not None:
+            with _optimize_lock:
+                _optimize_jobs[job_id] = {
+                    "status": "done",
+                    "progress": cached.total_combinations,
+                    "total": cached.total_combinations,
+                    "result": cached,
+                    "error": None,
+                }
+            return
+
+        optimizer = GridSearchOptimizer()
+
+        def on_progress(current, total):
+            with _optimize_lock:
+                if job_id in _optimize_jobs:
+                    _optimize_jobs[job_id]["progress"] = current
+                    _optimize_jobs[job_id]["total"] = total
+
+        result = optimizer.optimize(
+            strategy, df, param_space, initial_capital,
+            progress_callback=on_progress,
+        )
+        result.symbol = symbol
+        result.symbol_name = name
+
+        save_cached_result(cache_key, result)
+
+        with _optimize_lock:
+            _optimize_jobs[job_id] = {
+                "status": "done",
+                "progress": result.total_combinations,
+                "total": result.total_combinations,
+                "result": result,
+                "error": None,
+            }
+    except Exception as e:
+        with _optimize_lock:
+            _optimize_jobs[job_id] = {
+                "status": "error",
+                "progress": 0,
+                "total": 0,
+                "result": None,
+                "error": str(e),
+            }
 
 
 @app.route("/api/refresh", methods=["POST"])
