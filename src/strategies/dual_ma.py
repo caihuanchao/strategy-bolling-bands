@@ -24,6 +24,17 @@ class DualMAStrategy(StrategyBase):
             {"key": "volume_threshold", "label": "量比阈值", "min": 1.0, "max": 3.0, "step": 0.1, "default": 1.2},
         ]
 
+    def get_optimizable_params(self) -> list:
+        from src.optimizer import OptimizableParam
+        return [
+            OptimizableParam(key="fast_period", label="快线周期 (EMA)", type="int",
+                             min=2, max=20, step=2, default=5),
+            OptimizableParam(key="slow_period", label="慢线周期 (EMA)", type="int",
+                             min=5, max=60, step=5, default=20),
+            OptimizableParam(key="volume_threshold", label="量比阈值", type="float",
+                             min=1.0, max=3.0, step=0.25, default=1.2),
+        ]
+
     def get_presets(self) -> list:
         return [
             {"id": "standard", "label": "标准", "params": {"fast_period": 5, "slow_period": 20, "volume_threshold": 1.2}, "desc": "经典5/20组合"},

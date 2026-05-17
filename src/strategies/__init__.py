@@ -65,6 +65,14 @@ class StrategyBase(ABC):
         ...
 
 
+    def get_optimizable_params(self) -> list:
+        """
+        返回可优化参数列表。默认返回空列表（策略不可优化）。
+        子类可覆盖此方法声明可优化参数。
+        """
+        return []
+
+
 class StrategyRegistry:
     """策略注册中心（单例模式）"""
 

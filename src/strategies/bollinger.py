@@ -24,6 +24,15 @@ class BollingerStrategy(StrategyBase):
             {"key": "m", "label": "M (倍数)", "min": 1.0, "max": 3.0, "step": 0.1, "default": 2.0},
         ]
 
+    def get_optimizable_params(self) -> list:
+        from src.optimizer import OptimizableParam
+        return [
+            OptimizableParam(key="n", label="N (周期)", type="int",
+                             min=5, max=50, step=5, default=20),
+            OptimizableParam(key="m", label="M (倍数)", type="float",
+                             min=1.0, max=3.0, step=0.25, default=2.0),
+        ]
+
     def get_presets(self) -> list:
         return [
             {"id": "trend", "label": "趋势跟踪", "params": {"n": 20, "m": 2.0}, "desc": "标准参数，适合趋势行情"},

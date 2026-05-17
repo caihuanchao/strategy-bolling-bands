@@ -188,6 +188,78 @@ def _calculate_performance(
     )
 
 
+def run_backtest_with_strategy(
+    df,
+    strategy,
+    params: dict,
+    initial_capital: Optional[float] = None,
+    cost_override: Optional[dict] = None,
+) -> BacktestResult:
+    """
+    用策略对象和参数运行回测（桥接策略系统与回测引擎）。
+
+    Args:
+        df: 含 OHLCV 的 DataFrame
+        strategy: StrategyBase 实例
+        params: 策略参数字典
+        initial_capital: 初始资金
+        cost_override: 可选费率覆盖，如 {"stamp_duty_rate": 0.0}（ETF 扩展点）
+
+    Returns:
+        BacktestResult
+    """
+    from .config import get_config
+
+    config = get_config()
+    saved = {}
+
+    if cost_override:
+        for key, val in cost_override.items():
+            saved[key] = getattr(config, key, None)
+            setattr(config, key, val)
+
+    try:
+        df_with_signals = strategy.generate_signals(df.copy(), params)
+        result = run_backtest(df_with_signals, initial_capital)
+    finally:
+        for key, val in saved.items():
+            setattr(config, key, val)
+
+    return result
+
+
+def trade_to_dict(trade: Trade) -> dict:
+    """单条交易记录序列化"""
+    return {
+        "date": trade.date,
+        "type": trade.type,
+        "price": round(trade.price, 2),
+        "shares": trade.shares,
+        "amount": round(trade.amount, 2),
+        "commission": round(trade.commission, 2),
+        "stamp_duty": round(trade.stamp_duty, 2),
+        "total_cost": round(trade.total_cost, 2),
+    }
+
+
+def backtest_result_to_dict(result: BacktestResult, include_trades: bool = True) -> dict:
+    """回测结果序列化为 JSON 友好字典"""
+    return {
+        "initial_capital": result.initial_capital,
+        "final_capital": round(result.final_capital, 2),
+        "total_return": round(result.total_return, 4),
+        "cagr": round(result.cagr, 4),
+        "max_drawdown": round(result.max_drawdown, 4),
+        "win_rate": round(result.win_rate, 4),
+        "reward_risk_ratio": round(result.reward_risk_ratio, 2),
+        "total_trades": result.total_trades,
+        "winning_trades": result.winning_trades,
+        "losing_trades": result.losing_trades,
+        "trades": [trade_to_dict(t) for t in result.trades] if include_trades else [],
+        "portfolio_values": [round(v, 2) for v in result.portfolio_values.tolist()],
+    }
+
+
 # === Phase 2: 多周期回测 ===
 @dataclass
 class MultiPeriodBacktestResult:
