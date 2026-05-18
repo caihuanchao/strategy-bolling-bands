@@ -3036,67 +3036,210 @@
 
         function drawEquityCurve(result) {
             const canvas = document.getElementById('bt-chart-canvas');
+            const pd = result.best_metrics.price_data;
             const pv = result.best_metrics.portfolio_values;
             if (!pv || pv.length < 2) return;
 
+            const hasSignalData = pd && pd.close && pd.close.length > 0;
+            const hasBollinger = hasSignalData && pd.boll_up && pd.boll_down && pd.ma_mid;
+
             const w = Math.min(900, canvas.parentElement.clientWidth - 40);
-            const h = 300;
             const pad = { top: 20, right: 20, bottom: 40, left: 70 };
+            const pw = w - pad.left - pad.right;
+            const n = pv.length;
+            const scaleX = i => pad.left + (i / Math.max(n - 1, 1)) * pw;
+
+            // Dual panel layout: top = price+signals, bottom = equity
+            const topH = hasSignalData ? 260 : 0, bottomH = 200, gap = 12;
+            const totalH = topH + (hasSignalData ? gap : 0) + bottomH;
             canvas.width = w;
-            canvas.height = h;
+            canvas.height = totalH;
             const ctx = canvas.getContext('2d');
 
-            const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
-            const pMin = Math.min(...pv), pMax = Math.max(...pv);
-            const pRange = pMax - pMin || 1;
+            ctx.clearRect(0, 0, w, totalH);
+
+            // ===== TOP PANEL: Price + Bollinger + Signals =====
+            if (hasSignalData) {
+                const topPad = { top: 18, right: pad.right, bottom: 28, left: pad.left };
+                const topPh = topH - topPad.top - topPad.bottom;
+
+                // Price range (include bands if present)
+                let pMin = Infinity, pMax = -Infinity;
+                pd.close.forEach(v => { if (v !== null) { pMin = Math.min(pMin, v); pMax = Math.max(pMax, v); } });
+                if (hasBollinger) {
+                    [pd.boll_up, pd.boll_down].forEach(arr => {
+                        arr.forEach(v => { if (v !== null) { pMin = Math.min(pMin, v); pMax = Math.max(pMax, v); } });
+                    });
+                }
+                const margin = (pMax - pMin) * 0.05 || 1;
+                pMin -= margin; pMax += margin;
+                const pRange = pMax - pMin || 1;
+                const scaleY = v => topPad.top + (1 - (v - pMin) / pRange) * topPh;
+
+                // Bollinger fill
+                if (hasBollinger) {
+                    ctx.fillStyle = 'rgba(128,128,128,0.10)';
+                    ctx.beginPath();
+                    let started = false;
+                    for (let i = 0; i < n; i++) {
+                        if (pd.boll_up[i] !== null && pd.boll_down[i] !== null) {
+                            const x = scaleX(i);
+                            if (!started) { ctx.moveTo(x, scaleY(pd.boll_up[i])); started = true; }
+                            else ctx.lineTo(x, scaleY(pd.boll_up[i]));
+                        }
+                    }
+                    for (let i = n - 1; i >= 0; i--) {
+                        if (pd.boll_down[i] !== null) ctx.lineTo(scaleX(i), scaleY(pd.boll_down[i]));
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Bollinger band lines
+                    const bands = [
+                        { key: 'boll_up', color: '#2ca02c', dash: [3, 3] },
+                        { key: 'boll_down', color: '#d62728', dash: [3, 3] },
+                        { key: 'ma_mid', color: '#ff7f0e', dash: [6, 3] },
+                    ];
+                    bands.forEach(bs => {
+                        ctx.strokeStyle = bs.color;
+                        ctx.setLineDash(bs.dash);
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        let started = false;
+                        for (let i = 0; i < n; i++) {
+                            if (pd[bs.key][i] !== null) {
+                                const x = scaleX(i), y = scaleY(pd[bs.key][i]);
+                                if (!started) { ctx.moveTo(x, y); started = true; }
+                                else ctx.lineTo(x, y);
+                            }
+                        }
+                        ctx.stroke();
+                    });
+                    ctx.setLineDash([]);
+                }
+
+                // Close price line
+                ctx.strokeStyle = '#1f77b4';
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                let started = false;
+                for (let i = 0; i < n; i++) {
+                    if (pd.close[i] !== null) {
+                        const x = scaleX(i), y = scaleY(pd.close[i]);
+                        if (!started) { ctx.moveTo(x, y); started = true; }
+                        else ctx.lineTo(x, y);
+                    }
+                }
+                ctx.stroke();
+
+                // Buy/Sell markers (sell first so buy draws on top)
+                const markerR = 5;
+                [{ key: 'sell_signal', color: '#27ae60', dir: 1 },
+                 { key: 'buy_signal', color: '#e74c3c', dir: -1 }].forEach(({key, color, dir}) => {
+                    if (!pd[key]) return;
+                    for (let i = 0; i < n; i++) {
+                        if (pd[key][i] === 1 && pd.close[i] !== null) {
+                            const cx = scaleX(i), cy = scaleY(pd.close[i]);
+                            ctx.fillStyle = color;
+                            ctx.beginPath();
+                            ctx.moveTo(cx, cy + dir * markerR * 1.5);
+                            ctx.lineTo(cx - markerR, cy - dir * markerR);
+                            ctx.lineTo(cx + markerR, cy - dir * markerR);
+                            ctx.closePath();
+                            ctx.fill();
+                        }
+                    }
+                });
+
+                // Y-axis grid lines
+                ctx.fillStyle = '#666';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                for (let i = 0; i <= 4; i++) {
+                    const v = pMin + (pRange * i / 4);
+                    const y = scaleY(v);
+                    ctx.fillText(v.toFixed(2), pad.left - 6, y + 3);
+                    ctx.strokeStyle = '#eee';
+                    ctx.lineWidth = 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(pad.left, y);
+                    ctx.lineTo(pad.left + pw, y);
+                    ctx.stroke();
+                }
+                ctx.fillStyle = '#333';
+                ctx.textAlign = 'center';
+                ctx.fillText('价格 (¥)', pad.left + pw / 2, topPad.top - 6);
+            }
+
+            // ===== BOTTOM PANEL: Portfolio Equity Curve =====
+            const botY0 = hasSignalData ? topH + gap : 0;
+            const botPad = { top: 18, right: pad.right, bottom: pad.bottom, left: pad.left };
+            const botPh = bottomH - botPad.top - botPad.bottom;
+
+            const pvMin = Math.min(...pv), pvMax = Math.max(...pv);
+            const pvRange = pvMax - pvMin || 1;
             const initial = result.best_metrics.initial_capital;
+            const scaleYBot = v => botY0 + botPad.top + (1 - (v - pvMin) / pvRange) * botPh;
 
-            const scaleX = i => pad.left + (i / (pv.length - 1)) * pw;
-            const scaleY = v => pad.top + (1 - (v - pMin) / pRange) * ph;
-
-            // 初始资金线
-            const yInit = scaleY(initial);
-            ctx.strokeStyle = '#ccc';
+            // Initial capital line
+            const yInit = scaleYBot(initial);
+            ctx.strokeStyle = '#aaa';
             ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(pad.left, yInit);
             ctx.lineTo(pad.left + pw, yInit);
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // 净值曲线
-            ctx.strokeStyle = '#667eea';
+            // Portfolio value curve
+            ctx.strokeStyle = '#9400d3';
             ctx.lineWidth = 2;
             ctx.beginPath();
             pv.forEach((v, i) => {
-                const x = scaleX(i), y = scaleY(v);
+                const x = scaleX(i), y = scaleYBot(v);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
 
-            // Y 轴
-            ctx.fillStyle = '#555';
-            ctx.font = '11px sans-serif';
+            // Y-axis for portfolio
+            ctx.fillStyle = '#666';
+            ctx.font = '10px sans-serif';
             ctx.textAlign = 'right';
             for (let i = 0; i <= 4; i++) {
-                const v = pMin + (pRange * i / 4);
-                const y = scaleY(v);
-                ctx.fillText((v / 10000).toFixed(1) + '万', pad.left - 6, y + 4);
+                const v = pvMin + (pvRange * i / 4);
+                const y = scaleYBot(v);
+                ctx.fillText((v / 10000).toFixed(1) + '万', pad.left - 6, y + 3);
                 ctx.strokeStyle = '#eee';
+                ctx.lineWidth = 0.5;
                 ctx.beginPath();
                 ctx.moveTo(pad.left, y);
                 ctx.lineTo(pad.left + pw, y);
                 ctx.stroke();
             }
 
-            // X 轴
+            // X-axis labels (dates or indices)
             ctx.textAlign = 'center';
-            const n = pv.length;
-            [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].forEach(i => {
-                ctx.fillText(i, scaleX(i), h - pad.bottom + 16);
-            });
-            ctx.fillText('交易日', pad.left + pw / 2, h - 4);
-            ctx.fillText('净值曲线 (最优参数)', pad.left + pw / 2, pad.top - 4);
+            ctx.fillStyle = '#555';
+            ctx.font = '10px sans-serif';
+            const xBaseline = botY0 + bottomH - 4;
+            if (pd && pd.date && pd.date.length > 0) {
+                const step = Math.max(1, Math.floor(pd.date.length / 8));
+                for (let i = 0; i < pd.date.length; i += step) {
+                    ctx.fillText(pd.date[i].slice(0, 10), scaleX(i), xBaseline);
+                }
+                ctx.fillText('日期', pad.left + pw / 2, xBaseline + 14);
+            } else {
+                [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4), n - 1].forEach(i => {
+                    ctx.fillText(i, scaleX(i), xBaseline);
+                });
+                ctx.fillText('交易日', pad.left + pw / 2, xBaseline + 14);
+            }
+
+            // Bottom panel title
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.fillText('净值曲线 (最优参数)', pad.left + pw / 2, botY0 + botPad.top - 6);
         }
 
         function drawConvergenceChart(result) {

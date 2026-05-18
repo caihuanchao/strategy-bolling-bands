@@ -144,6 +144,9 @@ def run_backtest(
         shares_held = 0
         # 更新最后一天的净值
         portfolio_values[-1] = cash
+        # 标记强制平仓为卖出信号，确保前端图表显示
+        if "sell_signal" in df.columns:
+            df.iloc[-1, df.columns.get_loc("sell_signal")] = 1
 
     df["portfolio_value"] = portfolio_values
     return _calculate_performance(df, trades, initial_capital)
@@ -288,6 +291,18 @@ def trade_to_dict(trade: Trade) -> dict:
 
 def backtest_result_to_dict(result: BacktestResult, include_trades: bool = True) -> dict:
     """回测结果序列化为 JSON 友好字典"""
+    # 提取价格+信号数据用于前端绘制买卖标记图
+    price_cols = ["date", "close", "buy_signal", "sell_signal"]
+    band_cols = ["ma_mid", "boll_up", "boll_down"]
+    available = [c for c in price_cols + band_cols if c in result.df.columns]
+    price_data = {}
+    for col in available:
+        vals = result.df[col]
+        if col == "date":
+            price_data[col] = vals.astype(str).tolist()
+        else:
+            price_data[col] = [round(float(v), 2) if pd.notna(v) else None for v in vals]
+
     return {
         "initial_capital": result.initial_capital,
         "final_capital": round(result.final_capital, 2),
@@ -303,6 +318,7 @@ def backtest_result_to_dict(result: BacktestResult, include_trades: bool = True)
         "portfolio_values": [round(v, 2) for v in result.portfolio_values.tolist()],
         "avg_holding_days": round(result.avg_holding_days, 1),
         "sharpe_ratio": round(result.sharpe_ratio, 4),
+        "price_data": price_data,
     }
 
 
