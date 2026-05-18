@@ -46,43 +46,93 @@ class KdjBollingerAtrStrategy(StrategyBase):
     DIV_LOOKBACK = 60
 
     def get_default_params(self) -> dict:
-        return {}
+        return {
+            "kdj_n": 9,
+            "atr_period": 14,
+            "bb_n": 20,
+            "bb_m": 2.0,
+            "kdj_j_oversold": 0,
+            "kdj_j_overbought": 100,
+        }
 
     def get_params_schema(self) -> list:
-        return []
+        return [
+            {"key": "kdj_n", "label": "KDJ 周期 N", "min": 6, "max": 15, "step": 3, "default": 9},
+            {"key": "atr_period", "label": "ATR 周期", "min": 10, "max": 20, "step": 2, "default": 14},
+            {"key": "bb_n", "label": "布林带周期 N", "min": 10, "max": 30, "step": 5, "default": 20},
+            {"key": "bb_m", "label": "布林带倍数 M", "min": 1.5, "max": 3.0, "step": 0.25, "default": 2.0},
+            {"key": "kdj_j_oversold", "label": "KDJ J值超卖阈值", "min": -10, "max": 20, "step": 5, "default": 0},
+            {"key": "kdj_j_overbought", "label": "KDJ J值超买阈值", "min": 80, "max": 110, "step": 5, "default": 100},
+        ]
 
     def get_presets(self) -> list:
         return [
             {
                 "id": "standard",
                 "label": "经典参数",
-                "params": {},
-                "desc": "KDJ(9,3,3) + ATR(14) + 布林带(20,2)，固定参数，三环境自适应",
-            }
+                "params": {"kdj_n": 9, "atr_period": 14, "bb_n": 20, "bb_m": 2.0, "kdj_j_oversold": 0, "kdj_j_overbought": 100},
+                "desc": "KDJ(9,3,3) + ATR(14) + 布林带(20,2)，三环境自适应经典参数",
+            },
+            {
+                "id": "sensitive",
+                "label": "敏感",
+                "params": {"kdj_n": 6, "atr_period": 10, "bb_n": 15, "bb_m": 1.75, "kdj_j_oversold": 10, "kdj_j_overbought": 90},
+                "desc": "更短周期，更早捕捉信号，适合活跃个股",
+            },
+            {
+                "id": "trend",
+                "label": "趋势优先",
+                "params": {"kdj_n": 12, "atr_period": 18, "bb_n": 25, "bb_m": 2.5, "kdj_j_oversold": -5, "kdj_j_overbought": 105},
+                "desc": "长周期宽带，减少假信号，适合趋势行情",
+            },
+        ]
+
+    def get_optimizable_params(self) -> list:
+        from src.optimizer import OptimizableParam
+        return [
+            OptimizableParam(key="kdj_n", label="KDJ 周期 N", type="int",
+                             min=6, max=15, step=3, default=9),
+            OptimizableParam(key="atr_period", label="ATR 周期", type="int",
+                             min=10, max=20, step=2, default=14),
+            OptimizableParam(key="bb_n", label="布林带周期 N", type="int",
+                             min=10, max=30, step=5, default=20),
+            OptimizableParam(key="bb_m", label="布林带倍数 M", type="float",
+                             min=1.5, max=3.0, step=0.25, default=2.0),
+            OptimizableParam(key="kdj_j_oversold", label="KDJ J值超卖阈值", type="int",
+                             min=-10, max=20, step=5, default=0),
+            OptimizableParam(key="kdj_j_overbought", label="KDJ J值超买阈值", type="int",
+                             min=80, max=110, step=5, default=100),
         ]
 
     # ═══════════════════════════════════════════════════════════════
     # Phase 1: 指标计算
     # ═══════════════════════════════════════════════════════════════
 
-    def _ensure_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _ensure_indicators(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """幂等补充所有需要的指标列"""
+        if params is None:
+            params = {}
         df = df.copy()
 
+        kdj_n = int(params.get("kdj_n", self.KDJ_N))
+        atr_period = int(params.get("atr_period", self.ATR_PERIOD))
+        bb_n = int(params.get("bb_n", self.BB_N))
+        bb_m = float(params.get("bb_m", self.BB_M))
+
         if "kdj_k" not in df.columns:
-            df = calculate_kdj(df, n=self.KDJ_N)
+            df = calculate_kdj(df, n=kdj_n)
 
         if "atr" not in df.columns:
-            df = calculate_atr(df, period=self.ATR_PERIOD)
+            df = calculate_atr(df, period=atr_period)
 
         # 布林带
         if "ma_mid" not in df.columns:
-            df["ma_mid"] = df["close"].rolling(window=self.BB_N).mean()
+            df["ma_mid"] = df["close"].rolling(window=bb_n).mean()
         if "std" not in df.columns:
-            df["std"] = df["close"].rolling(window=self.BB_N).std()
+            df["std"] = df["close"].rolling(window=bb_n).std()
         if "boll_up" not in df.columns:
-            df["boll_up"] = df["ma_mid"] + self.BB_M * df["std"]
-            df["boll_down"] = df["ma_mid"] - self.BB_M * df["std"]
+            df["boll_up"] = df["ma_mid"] + bb_m * df["std"]
+            df["boll_down"] = df["ma_mid"] - bb_m * df["std"]
 
         # 带宽
         if "bandwidth" not in df.columns:
@@ -191,8 +241,10 @@ class KdjBollingerAtrStrategy(StrategyBase):
     # Phase 3: KDJ 信号检测
     # ═══════════════════════════════════════════════════════════════
 
-    def _detect_kdj_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _detect_kdj_signals(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """检测 KDJ 金叉/死叉、J 值极端、KDJ 背离"""
+        if params is None:
+            params = {}
         n = len(df)
         df["kdj_golden_cross"] = 0
         df["kdj_death_cross"] = 0
@@ -209,6 +261,9 @@ class KdjBollingerAtrStrategy(StrategyBase):
         j_vals = df["kdj_j"].values
         close = df["close"].values
 
+        j_overbought = int(params.get("kdj_j_overbought", self.KDJ_OVERBOUGHT_J))
+        j_oversold = int(params.get("kdj_j_oversold", self.KDJ_OVERSOLD_J))
+
         for i in range(1, n):
             if pd.isna(k_vals[i]) or pd.isna(d_vals[i]) or pd.isna(j_vals[i]):
                 continue
@@ -222,9 +277,9 @@ class KdjBollingerAtrStrategy(StrategyBase):
                 df.loc[df.index[i], "kdj_death_cross"] = 1
 
             # J 值极端
-            if j_vals[i] >= self.KDJ_OVERBOUGHT_J:
+            if j_vals[i] >= j_overbought:
                 df.loc[df.index[i], "kdj_j_extreme_high"] = 1
-            if j_vals[i] <= self.KDJ_OVERSOLD_J:
+            if j_vals[i] <= j_oversold:
                 df.loc[df.index[i], "kdj_j_extreme_low"] = 1
 
         # KDJ 背离检测
@@ -332,8 +387,11 @@ class KdjBollingerAtrStrategy(StrategyBase):
     # Phase 5: 周线布林带方向确认
     # ═══════════════════════════════════════════════════════════════
 
-    def _calc_weekly_confirm(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _calc_weekly_confirm(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """周线布林带中轨方向过滤：朝上只做多，朝下只做空"""
+        if params is None:
+            params = {}
+        bb_n = int(params.get("bb_n", self.BB_N))
         n = len(df)
         df["weekly_bb_bullish"] = 0
         df["weekly_bb_bearish"] = 0
@@ -355,12 +413,12 @@ class KdjBollingerAtrStrategy(StrategyBase):
                 return df
 
             # 计算周线布林带中轨
-            weekly_mid = weekly_close.rolling(window=self.BB_N).mean()
+            weekly_mid = weekly_close.rolling(window=bb_n).mean()
 
             # 周线中轨方向判定（对比两周前）
             bullish_dates = []
             bearish_dates = []
-            for j in range(self.BB_N + 2, len(weekly_mid)):
+            for j in range(bb_n + 2, len(weekly_mid)):
                 if pd.notna(weekly_mid.iloc[j]) and pd.notna(weekly_mid.iloc[j - 2]):
                     if weekly_mid.iloc[j] > weekly_mid.iloc[j - 2]:
                         bullish_dates.append(weekly_mid.index[j])
@@ -393,8 +451,10 @@ class KdjBollingerAtrStrategy(StrategyBase):
     # Phase 6: 信号分级 (C/B/A/S)
     # ═══════════════════════════════════════════════════════════════
 
-    def _classify_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _classify_signals(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """四级信号分级 — 环境感知"""
+        if params is None:
+            params = {}
         n = len(df)
 
         df["signal_grade"] = "NONE"
@@ -402,6 +462,9 @@ class KdjBollingerAtrStrategy(StrategyBase):
         df["buy_signal"] = 0
         df["sell_signal"] = 0
         df["is_enhanced"] = False
+
+        j_oversold = int(params.get("kdj_j_oversold", self.KDJ_OVERSOLD_J))
+        j_overbought = int(params.get("kdj_j_overbought", self.KDJ_OVERBOUGHT_J))
 
         min_bars = max(self.MA50_WINDOW + 10, self.SQUEEZE_LOOKBACK)
         for i in range(min_bars, n):
@@ -455,7 +518,7 @@ class KdjBollingerAtrStrategy(StrategyBase):
 
             # ── 做多信号 ──
             has_long_basis = touch_lower or pierce_lower_ret
-            has_kdj_long = golden_cross or j_turning_up or (pd.notna(kdj_j) and kdj_j < self.KDJ_OVERSOLD_J)
+            has_kdj_long = golden_cross or j_turning_up or (pd.notna(kdj_j) and kdj_j < j_oversold)
 
             if has_long_basis or has_kdj_long:
                 grade = None
@@ -496,7 +559,7 @@ class KdjBollingerAtrStrategy(StrategyBase):
 
             # ── 做空信号 ──
             has_short_basis = touch_upper or pierce_upper_ret
-            has_kdj_short = death_cross or j_turning_down or (pd.notna(kdj_j) and kdj_j > self.KDJ_OVERBOUGHT_J)
+            has_kdj_short = death_cross or j_turning_down or (pd.notna(kdj_j) and kdj_j > j_overbought)
 
             if has_short_basis or has_kdj_short:
                 # 趋势环境下的沿轨爬行 ≠ 做空信号
@@ -541,8 +604,10 @@ class KdjBollingerAtrStrategy(StrategyBase):
     # Phase 7: 出场条件
     # ═══════════════════════════════════════════════════════════════
 
-    def _detect_exit_triggers(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _detect_exit_triggers(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """检测出场条件"""
+        if params is None:
+            params = {}
         n = len(df)
 
         for col in [f"exit_trigger_{i}" for i in range(1, 6)]:
@@ -580,7 +645,8 @@ class KdjBollingerAtrStrategy(StrategyBase):
             kdj_j = df["kdj_j"].iloc[i]
             kdj_j_prev = df["kdj_j"].iloc[i - 1] if i >= 1 else kdj_j
             if pd.notna(kdj_j) and pd.notna(kdj_j_prev):
-                if kdj_j_prev > self.KDJ_OVERBOUGHT_J and kdj_j < 100:
+                j_overbought_exit = int(params.get("kdj_j_overbought", self.KDJ_OVERBOUGHT_J))
+                if kdj_j_prev > j_overbought_exit and kdj_j < 100:
                     df.loc[df.index[i], "exit_trigger_3"] = 1
 
             # 4. ATR 异常跳升（波动率突变 = 变盘预警）
@@ -600,13 +666,13 @@ class KdjBollingerAtrStrategy(StrategyBase):
     # ═══════════════════════════════════════════════════════════════
 
     def generate_signals(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
-        df = self._ensure_indicators(df)
+        df = self._ensure_indicators(df, params)
         df = self._detect_environment(df)
-        df = self._detect_kdj_signals(df)
+        df = self._detect_kdj_signals(df, params)
         df = self._detect_bollinger_signals(df)
-        df = self._calc_weekly_confirm(df)
-        df = self._classify_signals(df)
-        df = self._detect_exit_triggers(df)
+        df = self._calc_weekly_confirm(df, params)
+        df = self._classify_signals(df, params)
+        df = self._detect_exit_triggers(df, params)
         return df
 
     def create_signal(self, symbol: str, name: str, df: pd.DataFrame,

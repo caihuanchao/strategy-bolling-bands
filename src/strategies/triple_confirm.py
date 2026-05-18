@@ -16,19 +16,58 @@ class TripleConfirmStrategy(StrategyBase):
     strategy_name = "三重确认"
 
     def get_default_params(self) -> dict:
-        return {}
+        return {
+            "rsi_period": 14,
+            "rsi_long_low": 30,
+            "rsi_short_high": 70,
+            "vol_s_threshold": 1.5,
+            "adx_threshold": 20,
+        }
 
     def get_params_schema(self) -> list:
-        return []
+        return [
+            {"key": "rsi_period", "label": "RSI 周期", "min": 8, "max": 21, "step": 1, "default": 14},
+            {"key": "rsi_long_low", "label": "RSI 做多区间下限", "min": 20, "max": 40, "step": 5, "default": 30},
+            {"key": "rsi_short_high", "label": "RSI 做空区间上限", "min": 65, "max": 80, "step": 5, "default": 70},
+            {"key": "vol_s_threshold", "label": "S级成交量阈值", "min": 1.0, "max": 2.5, "step": 0.25, "default": 1.5},
+            {"key": "adx_threshold", "label": "ADX 趋势阈值", "min": 15, "max": 30, "step": 5, "default": 20},
+        ]
 
     def get_presets(self) -> list:
         return [
             {
                 "id": "standard",
                 "label": "标准参数",
-                "params": {},
-                "desc": "MACD(12/26/9) + RSI(14) + 成交量MA20，固定参数",
-            }
+                "params": {"rsi_period": 14, "rsi_long_low": 30, "rsi_short_high": 70, "vol_s_threshold": 1.5, "adx_threshold": 20},
+                "desc": "MACD(12/26/9) + RSI(14) + ADX(14)，经典参数",
+            },
+            {
+                "id": "sensitive",
+                "label": "敏感",
+                "params": {"rsi_period": 9, "rsi_long_low": 35, "rsi_short_high": 65, "vol_s_threshold": 1.25, "adx_threshold": 15},
+                "desc": "更短 RSI 周期，更低信号门槛，适合活跃个股",
+            },
+            {
+                "id": "trend",
+                "label": "趋势优先",
+                "params": {"rsi_period": 21, "rsi_long_low": 25, "rsi_short_high": 75, "vol_s_threshold": 2.0, "adx_threshold": 25},
+                "desc": "长 RSI 周期，高确认门槛，减少假信号",
+            },
+        ]
+
+    def get_optimizable_params(self) -> list:
+        from src.optimizer import OptimizableParam
+        return [
+            OptimizableParam(key="rsi_period", label="RSI 周期", type="int",
+                             min=8, max=21, step=1, default=14),
+            OptimizableParam(key="rsi_long_low", label="RSI 做多区间下限", type="int",
+                             min=20, max=40, step=5, default=30),
+            OptimizableParam(key="rsi_short_high", label="RSI 做空区间上限", type="int",
+                             min=65, max=80, step=5, default=70),
+            OptimizableParam(key="vol_s_threshold", label="S级成交量阈值", type="float",
+                             min=1.0, max=2.5, step=0.25, default=1.5),
+            OptimizableParam(key="adx_threshold", label="ADX 趋势阈值", type="int",
+                             min=15, max=30, step=5, default=20),
         ]
 
     # ── 参数常量 ──
@@ -50,8 +89,10 @@ class TripleConfirmStrategy(StrategyBase):
     VOL_A_THRESHOLD = 1.0
     VOL_S_THRESHOLD = 1.5
 
-    def _ensure_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _ensure_indicators(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """幂等补充所有需要的指标列"""
+        if params is None:
+            params = {}
         df = df.copy()
 
         if "macd" not in df.columns:
@@ -69,7 +110,8 @@ class TripleConfirmStrategy(StrategyBase):
             )
 
         if "rsi" not in df.columns:
-            df = calculate_rsi(df, period=self.RSI_PERIOD)
+            rsi_period = int(params.get("rsi_period", self.RSI_PERIOD))
+            df = calculate_rsi(df, period=rsi_period)
 
         if "adx" not in df.columns:
             df = calculate_adx(df, period=self.ADX_PERIOD)
@@ -272,8 +314,10 @@ class TripleConfirmStrategy(StrategyBase):
 
         return df
 
-    def _classify_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _classify_signals(self, df: pd.DataFrame, params: dict = None) -> pd.DataFrame:
         """四级信号分级 (C/B/A/S)"""
+        if params is None:
+            params = {}
         n = len(df)
 
         df["signal_grade"] = "NONE"
@@ -311,7 +355,8 @@ class TripleConfirmStrategy(StrategyBase):
                 signal_type = "BUY"
 
                 # B 级：RSI 在 30-65 区间且方向向上
-                rsi_in_zone = self.RSI_LONG_LOW <= rsi_val <= self.RSI_LONG_HIGH
+                rsi_long_low = int(params.get("rsi_long_low", self.RSI_LONG_LOW))
+                rsi_in_zone = rsi_long_low <= rsi_val <= self.RSI_LONG_HIGH
                 rsi_dir_up = pd.notna(rsi_prev) and rsi_val > rsi_prev
                 if rsi_in_zone and rsi_dir_up:
                     grade = "B"
@@ -322,7 +367,8 @@ class TripleConfirmStrategy(StrategyBase):
                         grade = "A"
 
                 # S 级：三重背离共振（覆盖 A/B/C）
-                if macd_bottom_div and rsi_bottom_div and vol_ratio >= self.VOL_S_THRESHOLD:
+                vol_s_th = float(params.get("vol_s_threshold", self.VOL_S_THRESHOLD))
+                if macd_bottom_div and rsi_bottom_div and vol_ratio >= vol_s_th:
                     grade = "S"
 
             # ── 做空信号 ──
@@ -330,7 +376,8 @@ class TripleConfirmStrategy(StrategyBase):
                 grade = "C"
                 signal_type = "SELL"
 
-                rsi_in_zone = self.RSI_SHORT_LOW <= rsi_val <= self.RSI_SHORT_HIGH
+                rsi_short_high = int(params.get("rsi_short_high", self.RSI_SHORT_HIGH))
+                rsi_in_zone = self.RSI_SHORT_LOW <= rsi_val <= rsi_short_high
                 rsi_dir_down = pd.notna(rsi_prev) and rsi_val < rsi_prev
                 if rsi_in_zone and rsi_dir_down:
                     grade = "B"
@@ -339,7 +386,8 @@ class TripleConfirmStrategy(StrategyBase):
                     if vol_ok and vol_shrink:
                         grade = "A"
 
-                if macd_top_div and rsi_top_div and vol_ratio >= self.VOL_S_THRESHOLD:
+                vol_s_th2 = float(params.get("vol_s_threshold", self.VOL_S_THRESHOLD))
+                if macd_top_div and rsi_top_div and vol_ratio >= vol_s_th2:
                     grade = "S"
 
             if grade is None or signal_type is None:
@@ -347,7 +395,8 @@ class TripleConfirmStrategy(StrategyBase):
 
             # ── ADX 过滤 ──
             adx_val = df["adx"].iloc[i]
-            if pd.notna(adx_val) and adx_val < self.ADX_THRESHOLD:
+            adx_th = int(params.get("adx_threshold", self.ADX_THRESHOLD))
+            if pd.notna(adx_val) and adx_val < adx_th:
                 grade = grade + "_adx_filtered"
 
             # ── MA50 趋势过滤（做多时 MA50 向下则降级） ──
@@ -421,12 +470,12 @@ class TripleConfirmStrategy(StrategyBase):
         return df
 
     def generate_signals(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
-        df = self._ensure_indicators(df)
+        df = self._ensure_indicators(df, params)
         df = self._detect_macd_divergence(df)
         df = self._detect_rsi_divergence(df)
         df = self._detect_volume_shrink_pattern(df)
         df = self._calc_weekly_confirm(df)
-        df = self._classify_signals(df)
+        df = self._classify_signals(df, params)
         df = self._detect_exit_triggers(df)
         return df
 

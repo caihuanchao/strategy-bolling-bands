@@ -37,6 +37,19 @@ class VolumeAnalysisStrategy(StrategyBase):
             {"id": "lagged", "label": "滞后", "params": {"divergence_lookback": 30, "volume_ratio_threshold": 2.0, "contraction_threshold": 0.4, "obv_divergence_window": 30}, "desc": "减少假信号，适合中长线"},
         ]
 
+    def get_optimizable_params(self) -> list:
+        from src.optimizer import OptimizableParam
+        return [
+            OptimizableParam(key="divergence_lookback", label="背离检测回望周期", type="int",
+                             min=10, max=40, step=5, default=20),
+            OptimizableParam(key="volume_ratio_threshold", label="放量阈值", type="float",
+                             min=1.2, max=3.0, step=0.25, default=1.5),
+            OptimizableParam(key="contraction_threshold", label="缩量阈值", type="float",
+                             min=0.3, max=0.8, step=0.1, default=0.5),
+            OptimizableParam(key="obv_divergence_window", label="OBV背离窗口", type="int",
+                             min=10, max=40, step=5, default=20),
+        ]
+
     def generate_signals(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         df = df.copy()
         n = len(df)
