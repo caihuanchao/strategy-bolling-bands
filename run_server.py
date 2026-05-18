@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 布林带策略 Web 仪表盘 - 一键启动脚本
-用法: python run_server.py
+用法: python3 run_server.py
 """
 
 import sys
