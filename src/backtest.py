@@ -43,7 +43,8 @@ class BacktestResult:
 
 def run_backtest(
     df: pd.DataFrame,
-    initial_capital: Optional[float] = None
+    initial_capital: Optional[float] = None,
+    lot_size: int = 100,
 ) -> BacktestResult:
     """
     运行回测
@@ -51,6 +52,7 @@ def run_backtest(
     Args:
         df: 包含价格和信号的 DataFrame
         initial_capital: 初始资金，默认使用配置
+        lot_size: 每手股数，A 股固定 100，港股因股而异
 
     Returns:
         BacktestResult 对象，包含完整回测结果
@@ -77,7 +79,7 @@ def run_backtest(
                 trade_amount = min(config.position_size_value * current_price, cash)
 
             if trade_amount > 0:
-                shares_to_buy = int(trade_amount / current_price)
+                shares_to_buy = int(trade_amount / current_price / lot_size) * lot_size
                 if shares_to_buy > 0:
                     buy_amount = shares_to_buy * current_price
                     commission = buy_amount * config.commission_rate
@@ -241,6 +243,7 @@ def run_backtest_with_strategy(
     params: dict,
     initial_capital: Optional[float] = None,
     cost_override: Optional[dict] = None,
+    lot_size: int = 100,
 ) -> BacktestResult:
     """
     用策略对象和参数运行回测（桥接策略系统与回测引擎）。
@@ -251,6 +254,7 @@ def run_backtest_with_strategy(
         params: 策略参数字典
         initial_capital: 初始资金
         cost_override: 可选费率覆盖，如 {"stamp_duty_rate": 0.0}（ETF 扩展点）
+        lot_size: 每手股数，A 股固定 100，港股因股而异
 
     Returns:
         BacktestResult
@@ -267,7 +271,7 @@ def run_backtest_with_strategy(
 
     try:
         df_with_signals = strategy.generate_signals(df.copy(), params)
-        result = run_backtest(df_with_signals, initial_capital)
+        result = run_backtest(df_with_signals, initial_capital, lot_size=lot_size)
     finally:
         for key, val in saved.items():
             setattr(config, key, val)

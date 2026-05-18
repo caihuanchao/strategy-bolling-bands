@@ -67,6 +67,7 @@ class BayesianOptimizer(BaseOptimizer):
         n_initial: int = 15,
         n_trials: int = 45,
         n_no_improve: int = 10,
+        lot_size: int = 100,
     ) -> OptimizationResult:
         start_time = time.time()
         all_results = []
@@ -97,7 +98,7 @@ class BayesianOptimizer(BaseOptimizer):
                     params[p.key] = trial.suggest_float(p.key, p.min, p.max, step=p.step)
 
             result = run_backtest_with_strategy(
-                df, strategy, params, initial_capital, cost_override
+                df, strategy, params, initial_capital, cost_override, lot_size=lot_size
             )
             metrics = backtest_result_to_dict(result, include_trades=True)
 

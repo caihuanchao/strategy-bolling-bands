@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template, request
 
 from src.config import get_config, ensure_dirs
 from src.watchlist import load_watchlist, create_sample_watchlist
+from src.lot_size import get_lot_size_map
 from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
 from src.signals import Signal
@@ -59,6 +60,7 @@ _data_state = {
     "loading": True,
     "error": None,
     "active_strategy": "bollinger",
+    "lot_size_map": {},
 }
 
 # 参数实验室状态（不持久化，刷新页面即恢复默认）
@@ -123,6 +125,9 @@ def load_data():
             _data_state["loading"] = False
         return
 
+    # 获取每手股数映射（港股需网络请求，首次慢后续缓存）
+    lot_size_map = get_lot_size_map(stocks)
+
     # 批量获取数据
     data_dict_raw, failed = fetch_batch_data(
         stocks=stocks,
@@ -179,6 +184,7 @@ def load_data():
             "loading": False,
             "error": None,
             "active_strategy": strategy.strategy_id,
+            "lot_size_map": lot_size_map,
         }
 
 
@@ -721,10 +727,15 @@ def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_c
     try:
         # 检查缓存
         import json as _json
+        # 获取该标的的每手股数
+        with _data_lock:
+            lot_map = _data_state.get("lot_size_map", {})
+        lot_size = lot_map.get(symbol, 100)
+
         params_json = _json.dumps([p.to_dict() for p in param_space], sort_keys=True)
         first_date = str(df["date"].iloc[0]) if "date" in df.columns else ""
         last_date = str(df["date"].iloc[-1]) if "date" in df.columns else ""
-        cache_key = _make_cache_key(strategy.strategy_id, symbol, params_json, first_date, last_date, optimize_metric, optimizer_type)
+        cache_key = _make_cache_key(strategy.strategy_id, symbol, params_json, first_date, last_date, optimize_metric, optimizer_type, lot_size=lot_size)
 
         cached = load_cached_result(cache_key)
         if cached is not None:
@@ -753,6 +764,7 @@ def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_c
             strategy, df, param_space, initial_capital,
             progress_callback=on_progress,
             optimize_metric=optimize_metric,
+            lot_size=lot_size,
         )
         result.symbol = symbol
         result.symbol_name = name
@@ -1064,6 +1076,9 @@ def load_cached_data():
     sell_count = len([s for s in signals_list if s.signal_type == "SELL"])
     enhanced_count = len([s for s in signals_list if s.is_enhanced])
 
+    # 保留已有的 lot_size_map
+    prev_lot_map = _data_state.get("lot_size_map", {})
+
     with _data_lock:
         _data_state = {
             "signals": signals_list,
@@ -1076,6 +1091,7 @@ def load_cached_data():
             "loading": len(data_dict) == 0,
             "error": None,
             "active_strategy": "bollinger",
+            "lot_size_map": prev_lot_map,
         }
 
 

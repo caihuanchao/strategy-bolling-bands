@@ -40,6 +40,7 @@ class GridSearchOptimizer(BaseOptimizer):
         environment_filter: Optional[str] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         optimize_metric: str = "total_return",
+        lot_size: int = 100,
     ) -> OptimizationResult:
         start_time = time.time()
 
@@ -53,7 +54,7 @@ class GridSearchOptimizer(BaseOptimizer):
             params = dict(zip(param_keys, combo))
 
             result = run_backtest_with_strategy(
-                df, strategy, params, initial_capital, cost_override
+                df, strategy, params, initial_capital, cost_override, lot_size=lot_size
             )
             metrics = backtest_result_to_dict(result, include_trades=True)
 

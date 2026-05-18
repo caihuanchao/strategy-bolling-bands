@@ -11,6 +11,7 @@ class StockInfo:
     """股票信息"""
     symbol: str
     name: str
+    lot_size: int = 100
 
 
 def load_watchlist(filepath: str = "watchlist.csv") -> List[StockInfo]:

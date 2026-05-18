@@ -68,6 +68,7 @@ class BaseOptimizer(ABC):
         environment_filter: Optional[str] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         optimize_metric: str = "total_return",
+        lot_size: int = 100,
     ) -> OptimizationResult:
         """
         执行参数优化。
@@ -81,5 +82,6 @@ class BaseOptimizer(ABC):
             environment_filter: 可选环境过滤，如 "trend"/"range"/"squeeze"（D 扩展点）
             progress_callback: 进度回调 (current, total)
             optimize_metric: 优化目标指标，默认 total_return
+            lot_size: 每手股数，A 股固定 100，港股因股而异
         """
         ...
