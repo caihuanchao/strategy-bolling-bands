@@ -39,6 +39,7 @@ class GridSearchOptimizer(BaseOptimizer):
         cost_override: Optional[dict] = None,
         environment_filter: Optional[str] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        optimize_metric: str = "total_return",
     ) -> OptimizationResult:
         start_time = time.time()
 
@@ -64,8 +65,19 @@ class GridSearchOptimizer(BaseOptimizer):
             if progress_callback:
                 progress_callback(idx + 1, total)
 
-        # 按 total_return 降序排列
-        all_results.sort(key=lambda x: x["metrics"]["total_return"], reverse=True)
+        # 为每条结果补充派生指标
+        for r in all_results:
+            m = r["metrics"]
+            holding = max(m.get("avg_holding_days", 0), 1)
+            if m.get("total_trades", 0) == 0:
+                m["efficiency_ratio"] = 0.0
+            else:
+                m["efficiency_ratio"] = round(m["total_return"] / holding, 6)
+
+        # 按选定的指标降序排列
+        def _sort_key(x):
+            return x["metrics"].get(optimize_metric, x["metrics"]["total_return"])
+        all_results.sort(key=_sort_key, reverse=True)
 
         best = all_results[0]
         elapsed = time.time() - start_time
@@ -81,5 +93,5 @@ class GridSearchOptimizer(BaseOptimizer):
             total_combinations=total,
             elapsed_seconds=elapsed,
             cached=False,
-            optimize_metric="total_return",
+            optimize_metric=optimize_metric,
         )

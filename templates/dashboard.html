@@ -294,6 +294,7 @@
         .bt-best-card .card-val.green { color: #27ae60; }
         .bt-best-card .card-val.red { color: #e74c3c; }
         .bt-best-card .card-lbl { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        .bt-best-card.highlight { background: linear-gradient(135deg, #1a3a2e, #0d4a2e); border: 2px solid #27ae60; }
         .bt-heatmap { margin-bottom: 20px; }
         .bt-heatmap canvas { display: block; max-width: 100%; border-radius: 8px; }
         .bt-chart { margin-bottom: 20px; }
@@ -454,6 +455,26 @@
                     <div class="bt-estimate" id="bt-estimate"></div>
                 </div>
 
+                <!-- 优化目标 -->
+                <div class="bt-section" id="bt-metric-section" style="display:none">
+                    <h3>4. 优化目标</h3>
+                    <select class="bt-select" id="bt-metric-select" style="max-width:260px">
+                        <option value="total_return">总收益率 — 追求最高绝对收益</option>
+                        <option value="efficiency_ratio">持仓效率 — 收益/持仓天数，偏好短持</option>
+                        <option value="cagr">年化收益 (CAGR) — 复利增长速度</option>
+                        <option value="sharpe_ratio">夏普比率 — 风险调整后收益</option>
+                    </select>
+                </div>
+
+                <!-- 搜索策略 -->
+                <div class="bt-section" id="bt-optimizer-section" style="display:none">
+                    <h3>5. 搜索策略</h3>
+                    <select class="bt-select" id="bt-optimizer-type" style="max-width:320px" onchange="onBtOptimizerTypeChange()">
+                        <option value="grid">网格搜索 — 暴力遍历所有组合，保证全局最优</option>
+                        <option value="bayesian">贝叶斯优化 — 智能采样 + 粗网格覆盖，40-50 次逼近最优</option>
+                    </select>
+                </div>
+
                 <!-- 操作 -->
                 <div style="text-align:center;margin-top:16px">
                     <button class="bt-btn" id="bt-start-btn" onclick="startOptimize()" disabled>开始优化</button>
@@ -469,6 +490,7 @@
                 <div class="bt-results" id="bt-results" style="display:none">
                     <h3 style="margin-bottom:16px;color:#2c3e50;">优化结果</h3>
                     <div class="bt-best-cards" id="bt-best-cards"></div>
+                    <div class="bt-chart" id="bt-convergence" style="display:none"><canvas id="bt-convergence-canvas"></canvas></div>
                     <div class="bt-heatmap" id="bt-heatmap"><canvas id="bt-heatmap-canvas"></canvas></div>
                     <div class="bt-chart" id="bt-chart"><canvas id="bt-chart-canvas"></canvas></div>
                     <div id="bt-trades">
@@ -2719,11 +2741,15 @@
             if (!st.optimizable) {
                 info.innerHTML += ' — 即将开放';
                 paramSection.style.display = 'none';
+                document.getElementById('bt-metric-section').style.display = 'none';
+                document.getElementById('bt-optimizer-section').style.display = 'none';
                 updateBtStartBtn();
                 return;
             }
 
             paramSection.style.display = 'block';
+            document.getElementById('bt-metric-section').style.display = 'block';
+            document.getElementById('bt-optimizer-section').style.display = 'block';
             sliders.innerHTML = st.optimizable_params.map(p => {
                 const stepInt = p.step >= 1;
                 const minVal = p.min, maxVal = p.max, defVal = p.default;
@@ -2764,9 +2790,19 @@
             });
 
             const est = document.getElementById('bt-estimate');
-            est.textContent = '预计回测 ' + total + ' 次';
-            est.className = 'bt-estimate' + (total > 200 ? ' warn' : '');
+            const optType = document.getElementById('bt-optimizer-type').value;
+            if (optType === 'bayesian') {
+                est.textContent = '贝叶斯优化：最多评估 45 次（15 粗网格 + 30 智能采样），可早停';
+                est.className = 'bt-estimate';
+            } else {
+                est.textContent = '预计回测 ' + total + ' 次';
+                est.className = 'bt-estimate' + (total > 200 ? ' warn' : '');
+            }
             updateBtStartBtn();
+        }
+
+        function onBtOptimizerTypeChange() {
+            onBtParamChange();
         }
 
         function updateBtStartBtn() {
@@ -2798,6 +2834,9 @@
                 };
             });
 
+            const optimizeMetric = document.getElementById('bt-metric-select').value;
+            const optimizerType = document.getElementById('bt-optimizer-type').value;
+
             document.getElementById('bt-start-btn').disabled = true;
             document.getElementById('bt-progress').style.display = 'block';
             document.getElementById('bt-results').style.display = 'none';
@@ -2808,7 +2847,7 @@
                 const resp = await fetch('/api/backtest/optimize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol, strategy_id: strategyId, param_overrides: paramOverrides }),
+                    body: JSON.stringify({ symbol, strategy_id: strategyId, param_overrides: paramOverrides, optimize_metric: optimizeMetric, optimizer_type: optimizerType }),
                 });
                 const data = await resp.json();
                 if (data.error) { alert(data.error); resetBtUI(); return; }
@@ -2821,6 +2860,8 @@
 
         function pollOptimizeJob(jobId) {
             if (btPollTimer) clearInterval(btPollTimer);
+            const optType = document.getElementById('bt-optimizer-type').value;
+            const prefix = optType === 'bayesian' ? '已评估 ' : '已遍历 ';
             btPollTimer = setInterval(async () => {
                 try {
                     const resp = await fetch('/api/backtest/optimize/' + jobId);
@@ -2828,12 +2869,12 @@
                     if (data.status === 'running') {
                         const pct = data.total > 0 ? Math.round(data.progress / data.total * 100) : 0;
                         document.getElementById('bt-progress-fill').style.width = pct + '%';
-                        document.getElementById('bt-progress-text').textContent = data.progress + ' / ' + data.total + ' (' + pct + '%)';
+                        document.getElementById('bt-progress-text').textContent = prefix + data.progress + ' / ' + data.total + ' (' + pct + '%)';
                     } else if (data.status === 'done') {
                         clearInterval(btPollTimer);
                         btPollTimer = null;
                         document.getElementById('bt-progress-fill').style.width = '100%';
-                        document.getElementById('bt-progress-text').textContent = '完成！共 ' + data.total + ' 次，耗时 ' + (data.result ? data.result.elapsed_seconds : '?') + ' 秒';
+                        document.getElementById('bt-progress-text').textContent = '完成！' + prefix + data.total + ' 次，耗时 ' + (data.result ? data.result.elapsed_seconds : '?') + ' 秒';
                         renderBtResults(data.result);
                         document.getElementById('bt-start-btn').disabled = false;
                     } else if (data.status === 'error') {
@@ -2865,14 +2906,33 @@
             const bp = result.best_params;
             const cards = document.getElementById('bt-best-cards');
             const paramStr = Object.entries(bp).map(([k, v]) => k + '=' + v).join(', ');
+            const metricLabels = { total_return: '总收益率', efficiency_ratio: '持仓效率', cagr: '年化收益 (CAGR)', sharpe_ratio: '夏普比率' };
+            const optimizeMetric = result.optimize_metric || 'total_return';
+            const metricLabel = metricLabels[optimizeMetric] || optimizeMetric;
+            let metricVal = bm[optimizeMetric];
+            if (metricVal === undefined || metricVal === null) metricVal = bm.total_return;
+            const metricStr = optimizeMetric === 'sharpe_ratio' ? metricVal.toFixed(3) :
+                              (optimizeMetric === 'efficiency_ratio' ? metricVal.toFixed(6) : (metricVal * 100).toFixed(2) + '%');
+            const holdDays = bm.avg_holding_days || 0;
             cards.innerHTML =
                 '<div class="bt-best-card"><div class="card-val">' + paramStr + '</div><div class="card-lbl">最优参数</div></div>' +
+                '<div class="bt-best-card highlight"><div class="card-val green">' + metricStr + '</div><div class="card-lbl">⭐ ' + metricLabel + '</div></div>' +
                 '<div class="bt-best-card"><div class="card-val green">' + (bm.total_return * 100).toFixed(2) + '%</div><div class="card-lbl">总收益率</div></div>' +
                 '<div class="bt-best-card"><div class="card-val green">' + (bm.cagr * 100).toFixed(2) + '%</div><div class="card-lbl">年化收益 (CAGR)</div></div>' +
                 '<div class="bt-best-card"><div class="card-val red">' + (bm.max_drawdown * 100).toFixed(2) + '%</div><div class="card-lbl">最大回撤</div></div>' +
                 '<div class="bt-best-card"><div class="card-val">' + (bm.win_rate * 100).toFixed(1) + '%</div><div class="card-lbl">胜率</div></div>' +
                 '<div class="bt-best-card"><div class="card-val">' + bm.reward_risk_ratio.toFixed(2) + '</div><div class="card-lbl">盈亏比</div></div>' +
-                '<div class="bt-best-card"><div class="card-val">' + bm.total_trades + '</div><div class="card-lbl">交易次数</div></div>';
+                '<div class="bt-best-card"><div class="card-val">' + bm.total_trades + '</div><div class="card-lbl">交易次数</div></div>' +
+                '<div class="bt-best-card"><div class="card-val">' + holdDays + ' 日</div><div class="card-lbl">平均持仓</div></div>';
+
+            // 收敛曲线（贝叶斯优化专属）
+            const optType = document.getElementById('bt-optimizer-type').value;
+            if (optType === 'bayesian' && result.all_results.length > 1) {
+                document.getElementById('bt-convergence').style.display = 'block';
+                drawConvergenceChart(result);
+            } else {
+                document.getElementById('bt-convergence').style.display = 'none';
+            }
 
             // 热力图（2 参数策略）
             if (result.param_space.length === 2 && result.all_results.length > 0) {
@@ -2900,6 +2960,9 @@
             const results = result.all_results;
             if (ps.length !== 2) return;
 
+            const optimizeMetric = result.optimize_metric || 'total_return';
+            const isRatio = (optimizeMetric === 'sharpe_ratio' || optimizeMetric === 'efficiency_ratio');
+
             const k0 = ps[0].key, k1 = ps[1].key;
             const xVals = [...new Set(results.map(r => r.params[k0]))].sort((a, b) => a - b);
             const yVals = [...new Set(results.map(r => r.params[k1]))].sort((a, b) => a - b);
@@ -2913,7 +2976,7 @@
             const ctx = canvas.getContext('2d');
 
             // 找出指标范围用于颜色映射
-            const values = results.map(r => r.metrics.total_return);
+            const values = results.map(r => r.metrics[optimizeMetric] || r.metrics.total_return);
             const vMin = Math.min(...values), vMax = Math.max(...values);
             const vRange = vMax - vMin || 1;
 
@@ -2923,13 +2986,14 @@
                 const yi = yVals.indexOf(r.params[k1]);
                 if (xi < 0 || yi < 0) return;
                 const x = leftPad + xi * cellW, y = topPad + yi * cellH;
-                const t = (r.metrics.total_return - vMin) / vRange;
+                const val = r.metrics[optimizeMetric] || r.metrics.total_return;
+                const t = (val - vMin) / vRange;
                 // 红(负) → 白(零) → 绿(正)
                 let rCol, gCol, bCol;
                 if (vMin >= 0) {
                     rCol = Math.round(255 - t * 200); gCol = Math.round(200 + t * 55); bCol = Math.round(200 - t * 140);
                 } else if (vMax <= 0) {
-                    const s = (r.metrics.total_return - vMin) / (0 - vMin + 1e-9);
+                    const s = (val - vMin) / (0 - vMin + 1e-9);
                     rCol = Math.round(255 - s * 55); gCol = Math.round(200 + s * 55 - s * 90); bCol = Math.round(200 - s * 140);
                 } else {
                     const zeroT = (0 - vMin) / vRange;
@@ -2946,7 +3010,8 @@
                 ctx.fillStyle = '#333';
                 ctx.font = '12px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText((r.metrics.total_return * 100).toFixed(1) + '%', x + cellW / 2, y + cellH / 2 + 4);
+                const label = isRatio ? val.toFixed(4) : (val * 100).toFixed(1) + '%';
+                ctx.fillText(label, x + cellW / 2, y + cellH / 2 + 4);
             });
 
             // 坐标轴标签
@@ -3032,6 +3097,64 @@
             });
             ctx.fillText('交易日', pad.left + pw / 2, h - 4);
             ctx.fillText('净值曲线 (最优参数)', pad.left + pw / 2, pad.top - 4);
+        }
+
+        function drawConvergenceChart(result) {
+            const canvas = document.getElementById('bt-convergence-canvas');
+            const results = result.all_results;
+            const optimizeMetric = result.optimize_metric || 'total_return';
+            const isRatio = (optimizeMetric === 'sharpe_ratio' || optimizeMetric === 'efficiency_ratio');
+
+            const w = 500, h = 280;
+            const pad = { top: 30, right: 20, bottom: 40, left: 60 };
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
+
+            // 提取每 trial 的指标值（按 trial 顺序）
+            const values = results.map(r => r.metrics[optimizeMetric] || r.metrics.total_return);
+            const bestSoFar = [];
+            let best = -Infinity;
+            for (const v of values) { if (v > best) best = v; bestSoFar.push(best); }
+
+            let vMin = Math.min(...values), vMax = Math.max(...values);
+            const vRange = vMax - vMin || 1;
+            vMin -= vRange * 0.1; vMax += vRange * 0.1;
+
+            const scaleX = (i) => pad.left + (i / (values.length - 1 || 1)) * pw;
+            const scaleY = (v) => pad.top + ph - ((v - vMin) / (vMax - vMin + 1e-9)) * ph;
+
+            // 网格
+            ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 0.5;
+            for (let i = 0; i <= 4; i++) {
+                const y = pad.top + i * ph / 4;
+                ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+                const val = vMin + (4 - i) / 4 * (vMax - vMin);
+                ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+                ctx.fillText(isRatio ? val.toFixed(4) : (val * 100).toFixed(1) + '%', pad.left - 4, y + 4);
+            }
+
+            // 散点
+            values.forEach((v, i) => {
+                ctx.fillStyle = '#3498db';
+                ctx.beginPath(); ctx.arc(scaleX(i), scaleY(v), 3, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // 迄今最佳台阶线
+            ctx.strokeStyle = '#27ae60'; ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(scaleX(0), scaleY(bestSoFar[0]));
+            for (let i = 1; i < bestSoFar.length; i++) {
+                ctx.lineTo(scaleX(i), scaleY(bestSoFar[i - 1]));
+                ctx.lineTo(scaleX(i), scaleY(bestSoFar[i]));
+            }
+            ctx.stroke();
+
+            // 标签
+            ctx.fillStyle = '#555'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('评估次数', pad.left + pw / 2, h - 4);
+            ctx.fillText('贝叶斯优化收敛曲线', pad.left + pw / 2, pad.top - 8);
         }
 
         function renderTradeTable(result) {

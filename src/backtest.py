@@ -37,6 +37,8 @@ class BacktestResult:
     total_trades: int
     winning_trades: int
     losing_trades: int
+    avg_holding_days: float = 0.0
+    sharpe_ratio: float = 0.0
 
 
 def run_backtest(
@@ -120,6 +122,29 @@ def run_backtest(
         current_value = cash + shares_held * current_price
         portfolio_values.append(current_value)
 
+    # 数据结束时强制平仓
+    if shares_held > 0:
+        last_row = df.iloc[-1]
+        current_price = last_row["close"]
+        sell_amount = shares_held * current_price
+        commission = sell_amount * config.commission_rate
+        stamp_duty = sell_amount * config.stamp_duty_rate
+        proceeds = sell_amount - commission - stamp_duty
+        cash += proceeds
+        trades.append(Trade(
+            date=last_row["date"],
+            type="sell",
+            price=current_price,
+            shares=shares_held,
+            amount=sell_amount,
+            commission=commission,
+            stamp_duty=stamp_duty,
+            total_cost=commission + stamp_duty
+        ))
+        shares_held = 0
+        # 更新最后一天的净值
+        portfolio_values[-1] = cash
+
     df["portfolio_value"] = portfolio_values
     return _calculate_performance(df, trades, initial_capital)
 
@@ -153,6 +178,7 @@ def _calculate_performance(
     winning_trades = 0
     losing_trades = 0
     profits = []
+    holding_days_list = []
 
     # 配对买卖计算盈亏
     for buy, sell in zip(buy_trades[:len(sell_trades)], sell_trades):
@@ -163,6 +189,12 @@ def _calculate_performance(
             winning_trades += 1
         elif profit < 0:
             losing_trades += 1
+        try:
+            buy_date = pd.to_datetime(buy.date)
+            sell_date = pd.to_datetime(sell.date)
+            holding_days_list.append((sell_date - buy_date).days)
+        except Exception:
+            pass
 
     win_rate = winning_trades / total_trades if total_trades > 0 else 0.0
 
@@ -170,6 +202,16 @@ def _calculate_performance(
     avg_win = np.mean([p for p in profits if p > 0]) if winning_trades > 0 else 0.0
     avg_loss = abs(np.mean([p for p in profits if p < 0])) if losing_trades > 0 else 1.0
     reward_risk_ratio = avg_win / avg_loss if avg_loss != 0 else 0.0
+
+    # 平均持仓天数
+    avg_holding_days = float(np.mean(holding_days_list)) if holding_days_list else 0.0
+
+    # 夏普比率（年化）
+    daily_returns = portfolio_values.pct_change().dropna()
+    if len(daily_returns) > 1 and daily_returns.std() > 0:
+        sharpe_ratio = float((daily_returns.mean() / daily_returns.std()) * np.sqrt(252))
+    else:
+        sharpe_ratio = 0.0
 
     return BacktestResult(
         df=df,
@@ -184,7 +226,9 @@ def _calculate_performance(
         reward_risk_ratio=reward_risk_ratio,
         total_trades=total_trades,
         winning_trades=winning_trades,
-        losing_trades=losing_trades
+        losing_trades=losing_trades,
+        avg_holding_days=avg_holding_days,
+        sharpe_ratio=sharpe_ratio,
     )
 
 
@@ -257,6 +301,8 @@ def backtest_result_to_dict(result: BacktestResult, include_trades: bool = True)
         "losing_trades": result.losing_trades,
         "trades": [trade_to_dict(t) for t in result.trades] if include_trades else [],
         "portfolio_values": [round(v, 2) for v in result.portfolio_values.tolist()],
+        "avg_holding_days": round(result.avg_holding_days, 1),
+        "sharpe_ratio": round(result.sharpe_ratio, 4),
     }
 
 

@@ -33,6 +33,7 @@ from src.strategies.triple_confirm_interpreter import interpret_triple_confirm_a
 from src.strategies.kdj_bollinger_atr import KdjBollingerAtrStrategy
 from src.strategies.kdj_bollinger_atr_interpreter import interpret_kdj_bb_atr_all
 from src.optimizer.grid_search import GridSearchOptimizer
+from src.optimizer.bayesian import BayesianOptimizer
 from src.optimizer.cache import load_cached_result, save_cached_result, _make_cache_key
 
 app = Flask(__name__)
@@ -635,6 +636,8 @@ def api_backtest_optimize():
     symbol = body.get("symbol", "").strip()
     strategy_id = body.get("strategy_id", "").strip()
     param_overrides = body.get("param_overrides", None)
+    optimize_metric = body.get("optimize_metric", "total_return")
+    optimizer_type = body.get("optimizer_type", "grid")
 
     if not symbol or not strategy_id:
         return jsonify({"error": "symbol 和 strategy_id 不能为空"}), 400
@@ -682,7 +685,7 @@ def api_backtest_optimize():
 
     threading.Thread(
         target=_run_optimize_job,
-        args=(job_id, symbol, name, strategy, df, opt_params, config.initial_capital),
+        args=(job_id, symbol, name, strategy, df, opt_params, config.initial_capital, optimize_metric, optimizer_type),
         daemon=True,
     ).start()
 
@@ -713,7 +716,7 @@ def api_backtest_optimize_status(job_id):
     return jsonify(response_data)
 
 
-def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_capital):
+def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_capital, optimize_metric="total_return", optimizer_type="grid"):
     """后台线程：执行参数优化"""
     try:
         # 检查缓存
@@ -721,7 +724,7 @@ def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_c
         params_json = _json.dumps([p.to_dict() for p in param_space], sort_keys=True)
         first_date = str(df["date"].iloc[0]) if "date" in df.columns else ""
         last_date = str(df["date"].iloc[-1]) if "date" in df.columns else ""
-        cache_key = _make_cache_key(strategy.strategy_id, symbol, params_json, first_date, last_date)
+        cache_key = _make_cache_key(strategy.strategy_id, symbol, params_json, first_date, last_date, optimize_metric, optimizer_type)
 
         cached = load_cached_result(cache_key)
         if cached is not None:
@@ -735,7 +738,10 @@ def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_c
                 }
             return
 
-        optimizer = GridSearchOptimizer()
+        if optimizer_type == "bayesian":
+            optimizer = BayesianOptimizer()
+        else:
+            optimizer = GridSearchOptimizer()
 
         def on_progress(current, total):
             with _optimize_lock:
@@ -746,6 +752,7 @@ def _run_optimize_job(job_id, symbol, name, strategy, df, param_space, initial_c
         result = optimizer.optimize(
             strategy, df, param_space, initial_capital,
             progress_callback=on_progress,
+            optimize_metric=optimize_metric,
         )
         result.symbol = symbol
         result.symbol_name = name

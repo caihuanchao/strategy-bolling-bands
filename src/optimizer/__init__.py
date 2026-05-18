@@ -67,6 +67,7 @@ class BaseOptimizer(ABC):
         cost_override: Optional[dict] = None,
         environment_filter: Optional[str] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        optimize_metric: str = "total_return",
     ) -> OptimizationResult:
         """
         执行参数优化。
@@ -79,5 +80,6 @@ class BaseOptimizer(ABC):
             cost_override: 可选费率覆盖，如 {"stamp_duty_rate": 0.0}（E 扩展点）
             environment_filter: 可选环境过滤，如 "trend"/"range"/"squeeze"（D 扩展点）
             progress_callback: 进度回调 (current, total)
+            optimize_metric: 优化目标指标，默认 total_return
         """
         ...

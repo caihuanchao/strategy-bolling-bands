@@ -189,6 +189,141 @@ def test_environment_filter_noop():
     print("✅ test_environment_filter_noop passed")
 
 
+def test_avg_holding_days():
+    """验证 avg_holding_days 计算正确"""
+    df = _make_sample_df(60)
+    strategy = BollingerStrategy()
+    params = {"n": 20, "m": 2.0}
+    result = run_backtest_with_strategy(df, strategy, params, initial_capital=100000)
+    d = backtest_result_to_dict(result, include_trades=True)
+    assert "avg_holding_days" in d
+    assert isinstance(d["avg_holding_days"], (int, float))
+    print(f"  avg_holding_days={d['avg_holding_days']}, total_trades={d['total_trades']}")
+    print("✅ test_avg_holding_days passed")
+
+
+def test_sharpe_ratio():
+    """验证 sharpe_ratio 计算"""
+    df = _make_sample_df(120)
+    strategy = BollingerStrategy()
+    params = {"n": 20, "m": 2.0}
+    result = run_backtest_with_strategy(df, strategy, params, initial_capital=100000)
+    d = backtest_result_to_dict(result, include_trades=True)
+    assert "sharpe_ratio" in d
+    assert isinstance(d["sharpe_ratio"], (int, float))
+    print(f"  sharpe_ratio={d['sharpe_ratio']:.4f}")
+    print("✅ test_sharpe_ratio passed")
+
+
+def test_optimize_metric_efficiency():
+    """验证 efficiency_ratio 作为优化目标"""
+    df = _make_sample_df(50)
+    strategy = BollingerStrategy()
+    params = strategy.get_optimizable_params()
+    params[0].min, params[0].max, params[0].step = 5, 15, 10
+    params[1].min, params[1].max, params[1].step = 1.0, 1.5, 0.5
+
+    optimizer = GridSearchOptimizer()
+    result = optimizer.optimize(strategy, df, params, 100000, optimize_metric="efficiency_ratio")
+
+    assert result.optimize_metric == "efficiency_ratio"
+    assert len(result.all_results) > 0
+    # efficiency_ratio 应存在于每个结果的 metrics 中
+    for r in result.all_results:
+        assert "efficiency_ratio" in r["metrics"]
+    print(f"  optimize_metric={result.optimize_metric}, best_er={result.best_metrics.get('efficiency_ratio')}")
+    print("✅ test_optimize_metric_efficiency passed")
+
+
+def test_optimize_metric_sharpe():
+    """验证 sharpe_ratio 作为优化目标"""
+    df = _make_sample_df(80)
+    strategy = BollingerStrategy()
+    params = strategy.get_optimizable_params()
+    params[0].min, params[0].max, params[0].step = 10, 20, 10
+    params[1].min, params[1].max, params[1].step = 1.5, 2.0, 0.5
+
+    optimizer = GridSearchOptimizer()
+    result = optimizer.optimize(strategy, df, params, 100000, optimize_metric="sharpe_ratio")
+
+    assert result.optimize_metric == "sharpe_ratio"
+    print(f"  optimize_metric={result.optimize_metric}, best_sharpe={result.best_metrics.get('sharpe_ratio')}")
+    print("✅ test_optimize_metric_sharpe passed")
+
+
+def test_optimize_metric_cagr():
+    """验证 cagr 作为优化目标"""
+    df = _make_sample_df(80)
+    strategy = BollingerStrategy()
+    params = strategy.get_optimizable_params()
+    params[0].min, params[0].max, params[0].step = 10, 20, 10
+    params[1].min, params[1].max, params[1].step = 1.5, 2.0, 0.5
+
+    optimizer = GridSearchOptimizer()
+    result = optimizer.optimize(strategy, df, params, 100000, optimize_metric="cagr")
+
+    assert result.optimize_metric == "cagr"
+    print(f"  optimize_metric={result.optimize_metric}, best_cagr={result.best_metrics.get('cagr')}")
+    print("✅ test_optimize_metric_cagr passed")
+
+
+def test_bayesian_bollinger():
+    """验证 BayesianOptimizer 返回结果结构"""
+    df = _make_sample_df(60)
+    strategy = BollingerStrategy()
+    params = strategy.get_optimizable_params()
+    params[0].min, params[0].max, params[0].step = 5, 25, 5
+    params[1].min, params[1].max, params[1].step = 1.0, 2.0, 0.5
+
+    from src.optimizer.bayesian import BayesianOptimizer
+    optimizer = BayesianOptimizer()
+    result = optimizer.optimize(strategy, df, params, 100000, n_initial=4, n_trials=8, n_no_improve=5)
+
+    assert result.strategy_id == "bollinger"
+    assert result.total_combinations > 0
+    assert len(result.all_results) > 0
+    assert len(result.best_params) == 2
+    assert "total_return" in result.best_metrics
+    assert result.optimize_metric == "total_return"
+    # 每个结果都有 efficiency_ratio
+    for r in result.all_results:
+        assert "efficiency_ratio" in r["metrics"]
+
+    print(f"  trials={result.total_combinations}, best_params={result.best_params}, best_return={result.best_metrics['total_return']:.4f}")
+    print("✅ test_bayesian_bollinger passed")
+
+
+def test_bayesian_vs_grid():
+    """验证贝叶斯最优值在网格最优值的 5% 差距内"""
+    df = _make_sample_df(80)
+    strategy = BollingerStrategy()
+    params = strategy.get_optimizable_params()
+    params[0].min, params[0].max, params[0].step = 10, 30, 10
+    params[1].min, params[1].max, params[1].step = 1.0, 2.0, 0.5
+
+    # 网格搜索
+    from src.optimizer.grid_search import GridSearchOptimizer
+    grid_opt = GridSearchOptimizer()
+    grid_result = grid_opt.optimize(strategy, df, params, 100000, optimize_metric="total_return")
+
+    # 贝叶斯优化
+    from src.optimizer.bayesian import BayesianOptimizer
+    bayes_opt = BayesianOptimizer()
+    bayes_result = bayes_opt.optimize(strategy, df, params, 100000, optimize_metric="total_return",
+                                       n_initial=6, n_trials=12, n_no_improve=5)
+
+    grid_best = grid_result.best_metrics["total_return"]
+    bayes_best = bayes_result.best_metrics["total_return"]
+
+    # 计算相对差距
+    abs_diff = abs(grid_best - bayes_best)
+    tolerance = max(abs(grid_best) * 0.05, 0.01)  # 5% or 1%
+    print(f"  grid_best={grid_best:.4f}, bayes_best={bayes_best:.4f}, diff={abs_diff:.4f}, tol={tolerance:.4f}")
+    print(f"  grid_trials={grid_result.total_combinations}, bayes_trials={bayes_result.total_combinations}")
+    assert abs_diff <= tolerance, f"Bayesian result {bayes_best:.4f} too far from grid {grid_best:.4f}"
+    print("✅ test_bayesian_vs_grid passed")
+
+
 if __name__ == "__main__":
     test_optimizable_param_dataclass()
     test_optimization_result_serialization()
@@ -199,4 +334,11 @@ if __name__ == "__main__":
     test_optimization_cache()
     test_cache_key_deterministic()
     test_environment_filter_noop()
+    test_avg_holding_days()
+    test_sharpe_ratio()
+    test_optimize_metric_efficiency()
+    test_optimize_metric_sharpe()
+    test_optimize_metric_cagr()
+    test_bayesian_bollinger()
+    test_bayesian_vs_grid()
     print("\n🎉 全部测试通过!")

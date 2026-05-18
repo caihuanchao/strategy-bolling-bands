@@ -20,9 +20,11 @@ def _make_cache_key(
     params_json: str,
     data_first_date: str,
     data_last_date: str,
+    optimize_metric: str = "total_return",
+    optimizer_type: str = "grid",
 ) -> str:
     """生成缓存 key（SHA256 前 16 位）"""
-    raw = f"{strategy_id}|{symbol}|{params_json}|{data_first_date}|{data_last_date}"
+    raw = f"{strategy_id}|{symbol}|{params_json}|{data_first_date}|{data_last_date}|{optimize_metric}|{optimizer_type}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
