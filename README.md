@@ -36,14 +36,17 @@ pip install -r requirements.txt
 
 ### 配置自选股
 
-编辑 `watchlist.csv`，格式如下：
+编辑 `watchlist.csv`（TAB 分隔），格式如下：
 
 ```csv
-symbol,name
-000333,美的集团
-000001,平安银行
-600519,贵州茅台
+代码	名称	分组
+000333	美的集团	A股
+000001	平安银行	A股
+00700	腾讯控股	港股
+515220	煤炭ETF国泰	ETF
 ```
+
+分组列可选，缺失时默认为"未分组"。预定义分组：A股、港股、ETF、可转债、其他。
 
 ### 运行工作流
 
@@ -389,12 +392,114 @@ older_avg  = 前 15 期 std 的均值（窗口共 20 期）
 
 ### 数据缓存机制
 
-第一次运行后，数据和计算结果会缓存在：
+系统采用**三层缓存架构**：原始数据缓存 → 计算结果缓存 → 优化结果缓存。首次运行从网络获取数据后写入本地，后续运行增量更新，大幅加速。
 
-- `data/*.csv`：原始 OHLCV 数据
-- `data/cache/`：计算结果（元数据、信号、布林带历史）
+#### 缓存文件命名规范
 
-第二次运行会从缓存加载，大幅加速！
+| 缓存类型 | 目录 | 命名格式 | 元数据 |
+|---------|------|---------|--------|
+| 原始 OHLCV | `data/` | `{name}_{symbol}_daily_{start_date}.csv` | `.meta.json` 同名文件 |
+| 布林带历史 | `data/cache/bollinger/` | `{name}_{symbol}.csv` | 无 |
+| 全局信号 | `data/cache/` | `signals.csv` | `metadata.json` |
+| 优化结果 | `data/cache/optimizer/` | `{sha256_key}.json` | — |
+
+文件名中的 `name` 经过 `clean_filename_name()` 清洗（特殊字符 `*()[]-./\` 替换为下划线）。向后兼容旧格式 `{symbol}_daily_{start_date}.csv`——加载时优先新格式，不存在则自动迁移。
+
+#### 数据获取流程
+
+```
+load_data()                                (app.py)
+  └── fetch_batch_data(stocks)             (src/data_fetcher.py)
+        └── for each stock:
+              └── get_stock_data(symbol, name)   ← 核心函数
+                    ├── 检查本地缓存
+                    │     ├── 缓存新鲜 → 直接返回
+                    │     ├── 缓存过期 → 增量拉取 (latest_date+1 天起)
+                    │     └── 无缓存 → 全量拉取
+                    ├── 在线数据源 fallback
+                    └── 保存缓存 + 元数据
+```
+
+#### 数据源 Fallback 链
+
+按股票类型自动分流：
+
+**A 股（6 位数字代码）**：3 级 fallback，每级重试 2 次（间隔 5 秒）
+
+```
+AKShare stock_zh_a_hist_tx (腾讯源，优先)
+  ↓ 失败
+AKShare stock_zh_a_hist (官方源)
+  ↓ 失败
+BaoStock
+  ↓ 失败
+样本数据 (随机生成，Seed=42)
+```
+
+**非 A 股（港股等）**：2 级 fallback，同样每级重试 2 次
+
+```
+AKShare stock_hk_daily (新浪源，优先)
+  ↓ 失败
+AKShare stock_hk_hist (东方财富源)
+  ↓ 失败
+样本数据 (随机生成)
+```
+
+#### 增量更新策略
+
+`get_stock_data()` 的决策树：
+
+```
+force_refresh=True → 跳过所有缓存，全量拉取 + 覆盖缓存
+
+有缓存 + 有 meta 文件：
+  ├── meta.latest_date < 今天 → 增量拉取(从 latest_date+1 天起)
+  │     ├── 有新数据 → merge_and_deduplicate() → 保存
+  │     └── 无新数据 → 返回缓存
+  └── meta.latest_date >= 今天 → 缓存新鲜，直接返回
+
+有缓存 + 无 meta（旧格式）：
+  └── 全量拉取 + 生成 meta
+
+无缓存：
+  └── 全量拉取 + 保存缓存 + 生成 meta
+```
+
+增量合并逻辑（`merge_and_deduplicate()`）：concat 新旧数据 → sort by date → drop_duplicates(keep='last')。
+
+#### 元数据文件结构
+
+每个原始数据缓存文件对应一个 `.meta.json`：
+
+```json
+{
+  "symbol": "600900",
+  "period": "daily",
+  "start_date": "20250101",
+  "latest_date": "2026-05-18",
+  "last_updated": "2026-05-19T10:15:00",
+  "source": "AKShare stock_zh_a_hist_tx",
+  "row_count": 325,
+  "integrity": "ok"
+}
+```
+
+全局 `data/cache/metadata.json` 记录最新一次扫描的快照（策略参数、信号统计、扫描时间）。
+
+#### 批量获取与限流
+
+`fetch_batch_data()` 遍历所有自选股，逐个调用 `get_stock_data()`，请求间隔 **0.3 秒**防限流。返回 `(成功字典 {symbol: df}, 失败列表)`。即使部分股票失败，也不影响其他股票的数据加载。
+
+#### 缓存清理
+
+删除个股时（通过 `remove_stock()`），自动清理关联的三类缓存文件：
+
+- `data/{name}_{symbol}_daily_*.csv` — 原始 OHLCV 数据
+- `data/{name}_{symbol}_daily_*.meta.json` — 对应元数据
+- `data/cache/bollinger/{name}_{symbol}.csv` — 布林带历史
+
+手动清理：删除 `data/` 目录下对应文件即可强制重新下载。
 
 ## 输出说明
 
