@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, jsonify, render_template, request
 
 from src.config import get_config, ensure_dirs
-from src.watchlist import load_watchlist, create_sample_watchlist
+from src.watchlist import load_watchlist, create_sample_watchlist, add_stock, remove_stock, DEFAULT_GROUPS
 from src.lot_size import get_lot_size_map
 from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
@@ -1118,6 +1118,70 @@ def background_refresh():
         with _data_lock:
             _data_state["loading"] = False
             _data_state["error"] = str(e)
+
+
+# ─── 自选股管理 API ──────────────────────────────────────
+
+
+@app.route("/api/watchlist")
+def api_watchlist():
+    """返回完整自选股列表（含分组）"""
+    try:
+        stocks = load_watchlist()
+        return jsonify({
+            "stocks": [{"symbol": s.symbol, "name": s.name, "group": s.group} for s in stocks],
+            "total": len(stocks),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/watchlist", methods=["POST"])
+def api_watchlist_add():
+    """添加个股"""
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get("symbol") or "").strip()
+    if not symbol:
+        return jsonify({"success": False, "error": "股票代码不能为空"}), 400
+
+    group = (data.get("group") or "未分组").strip()
+    name = (data.get("name") or symbol).strip()
+
+    with _data_lock:
+        try:
+            ok = add_stock(symbol, name, group)
+            return jsonify({"success": ok, "duplicate": not ok})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/watchlist/<symbol>", methods=["DELETE"])
+def api_watchlist_remove(symbol):
+    """删除个股"""
+    with _data_lock:
+        try:
+            ok = remove_stock(symbol)
+            return jsonify({"success": ok})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/watchlist/groups")
+def api_watchlist_groups():
+    """返回预定义分组 + 各分组股票数量"""
+    try:
+        stocks = load_watchlist()
+        counts = {}
+        for s in stocks:
+            counts[s.group] = counts.get(s.group, 0) + 1
+        group_list = [{"name": g, "count": counts.get(g, 0)} for g in DEFAULT_GROUPS]
+        # 也包含不在预定义分组中的自定义分组
+        for g, c in counts.items():
+            if g not in DEFAULT_GROUPS:
+                group_list.append({"name": g, "count": c})
+        return jsonify({"groups": group_list, "total": len(stocks)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

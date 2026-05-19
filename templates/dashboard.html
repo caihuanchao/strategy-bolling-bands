@@ -351,6 +351,7 @@
             <button class="tab" onclick="switchTab('all')">全部概览</button>
             <button class="tab" onclick="switchTab('params')">参数实验室</button>
             <button class="tab" onclick="switchTab('backtest')">回测实验室</button>
+            <button class="tab" onclick="switchTab('watchlist')">📋 个股管理</button>
         </div>
 
         <!-- Tab 1: 今日信号 -->
@@ -499,6 +500,41 @@
                     </div>
                     <div class="bt-warning">⚠️ 历史回测不代表未来表现。参数可能过拟合，请结合市场环境综合判断。</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Tab 5: 个股管理 -->
+        <div id="tab-watchlist" class="tab-content">
+            <div class="loading-spinner" id="wl-loading">加载中...</div>
+            <div id="wl-content" style="display:none">
+                <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+                    <select id="wl-group-filter" onchange="renderWatchlistTable()" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px">
+                        <option value="">全部分组</option>
+                    </select>
+                    <input id="wl-symbol-input" type="text" placeholder="股票代码 (如 600900)" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px;width:180px" onkeydown="if(event.key==='Enter')addStock()">
+                    <select id="wl-group-select" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px">
+                        <option value="">选择分组</option>
+                        <option value="A股">A股</option>
+                        <option value="港股">港股</option>
+                        <option value="ETF">ETF</option>
+                        <option value="可转债">可转债</option>
+                        <option value="其他">其他</option>
+                    </select>
+                    <button onclick="addStock()" style="padding:6px 16px;background:#3498db;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer">➕ 添加</button>
+                    <span id="wl-status" style="font-size:13px;color:#95a5a6"></span>
+                </div>
+                <div style="overflow-x:auto">
+                    <table class="wl-table" id="wl-table" style="width:100%;border-collapse:collapse">
+                        <thead><tr>
+                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">代码</th>
+                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">名称</th>
+                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">分组</th>
+                            <th style="text-align:center;padding:8px 12px;border-bottom:2px solid #dcdde1;width:80px">操作</th>
+                        </tr></thead>
+                        <tbody id="wl-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="wl-summary" style="margin-top:12px;font-size:13px;color:#7f8c8d"></div>
             </div>
         </div>
 
@@ -2672,6 +2708,8 @@
                 if (signalsData) updateComparison();
             } else if (tabId === 'backtest') {
                 initBacktestLab();
+            } else if (tabId === 'watchlist') {
+                loadWatchlistManager();
             }
         }
 
@@ -3368,6 +3406,104 @@
             });
 
             wrap.innerHTML = '<table class="bt-trades-table"><thead><tr><th>日期</th><th>类型</th><th>价格</th><th>股数</th><th>金额/盈亏</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+        }
+
+        // ═══ 个股管理 ═══
+
+        let wlData = [];
+
+        async function loadWatchlistManager() {
+            document.getElementById('wl-content').style.display = 'none';
+            document.getElementById('wl-loading').style.display = 'block';
+            try {
+                var [wlResp, grResp] = await Promise.all([
+                    fetchJSON('/api/watchlist'),
+                    fetchJSON('/api/watchlist/groups')
+                ]);
+                wlData = wlResp.stocks || [];
+                // 填充分组筛选器
+                var filter = document.getElementById('wl-group-filter');
+                filter.innerHTML = '<option value="">全部分组 (' + (wlResp.total || 0) + ')</option>';
+                (grResp.groups || []).forEach(function(g) {
+                    if (g.count > 0) {
+                        filter.innerHTML += '<option value="' + g.name + '">' + g.name + ' (' + g.count + ')</option>';
+                    }
+                });
+                renderWatchlistTable();
+                document.getElementById('wl-loading').style.display = 'none';
+                document.getElementById('wl-content').style.display = 'block';
+            } catch (e) {
+                document.getElementById('wl-loading').innerHTML = '<div class="error-msg">加载失败: ' + e.message + '</div>';
+            }
+        }
+
+        function renderWatchlistTable() {
+            var filterGroup = document.getElementById('wl-group-filter').value;
+            var filtered = wlData;
+            if (filterGroup) {
+                filtered = wlData.filter(function(s) { return s.group === filterGroup; });
+            }
+            // 按分组排序
+            filtered.sort(function(a, b) {
+                if (a.group !== b.group) return (a.group || '').localeCompare(b.group || '');
+                return a.symbol.localeCompare(b.symbol);
+            });
+            var rows = '';
+            filtered.forEach(function(s) {
+                rows += '<tr style="border-bottom:1px solid #ecf0f1">' +
+                    '<td style="padding:6px 12px"><strong>' + s.symbol + '</strong></td>' +
+                    '<td style="padding:6px 12px">' + s.name + '</td>' +
+                    '<td style="padding:6px 12px"><span style="background:#ecf0f1;padding:2px 8px;border-radius:4px;font-size:12px">' + (s.group || '未分组') + '</span></td>' +
+                    '<td style="padding:6px 12px;text-align:center"><button onclick="removeStock(\'' + s.symbol + '\')" style="padding:2px 10px;background:#e74c3c;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">删除</button></td>' +
+                    '</tr>';
+            });
+            document.getElementById('wl-tbody').innerHTML = rows || '<tr><td colspan="4" style="padding:20px;text-align:center;color:#95a5a6">该分组无股票</td></tr>';
+            document.getElementById('wl-summary').textContent = '共 ' + filtered.length + ' 只' + (filterGroup ? ' (' + filterGroup + ')' : '');
+            document.getElementById('wl-status').textContent = '';
+        }
+
+        async function addStock() {
+            var symbol = document.getElementById('wl-symbol-input').value.trim();
+            if (!symbol) {
+                document.getElementById('wl-status').innerHTML = '<span style="color:#e74c3c">请输入股票代码</span>';
+                return;
+            }
+            var group = document.getElementById('wl-group-select').value || '未分组';
+            document.getElementById('wl-status').innerHTML = '<span style="color:#3498db">添加中...</span>';
+            try {
+                var resp = await fetch('/api/watchlist', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: symbol, group: group })
+                });
+                var data = await resp.json();
+                if (data.success) {
+                    document.getElementById('wl-symbol-input').value = '';
+                    document.getElementById('wl-status').innerHTML = '<span style="color:#16a34a">已添加 ' + symbol + '</span>';
+                    loadWatchlistManager();
+                } else if (data.duplicate) {
+                    document.getElementById('wl-status').innerHTML = '<span style="color:#e67e22">' + symbol + ' 已存在</span>';
+                } else {
+                    document.getElementById('wl-status').innerHTML = '<span style="color:#e74c3c">' + (data.error || '添加失败') + '</span>';
+                }
+            } catch (e) {
+                document.getElementById('wl-status').innerHTML = '<span style="color:#e74c3c">' + e.message + '</span>';
+            }
+        }
+
+        async function removeStock(symbol) {
+            if (!confirm('确定要删除 ' + symbol + ' 吗？')) return;
+            try {
+                var resp = await fetch('/api/watchlist/' + symbol, { method: 'DELETE' });
+                var data = await resp.json();
+                if (data.success) {
+                    loadWatchlistManager();
+                } else {
+                    alert('删除失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
         }
 
         // 页面加载
