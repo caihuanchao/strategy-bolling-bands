@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template, request
 from src.config import get_config, ensure_dirs
 from src.watchlist import load_watchlist, create_sample_watchlist, add_stock, remove_stock, DEFAULT_GROUPS
 from src.lot_size import get_lot_size_map
-from src.data_fetcher import fetch_batch_data
+from src.data_fetcher import fetch_batch_data, get_stock_data
 from src.bollinger import calculate_bollinger
 from src.signals import Signal
 from src.indicators import calculate_macd, calculate_rsi, calculate_obv, calculate_volume_ratio
@@ -1191,6 +1191,84 @@ def api_watchlist_remove(symbol):
             return jsonify({"success": ok})
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/stock/<symbol>/refresh", methods=["POST"])
+def api_stock_refresh(symbol):
+    """手动刷新单只股票数据"""
+    stocks = load_watchlist()
+    stock_info = None
+    for s in stocks:
+        if s.symbol == symbol:
+            stock_info = s
+            break
+    if stock_info is None:
+        return jsonify({"success": False, "error": f"股票 {symbol} 未找到"}), 404
+
+    config = get_config()
+    try:
+        df = get_stock_data(
+            symbol=symbol, period=config.period,
+            start_date=config.start_date, name=stock_info.name,
+            force_refresh=True,
+        )
+    except Exception as e:
+        return jsonify({"success": False, "error": f"数据获取失败: {e}"}), 500
+
+    # 计算全部指标
+    df = calculate_bollinger(df, n=config.bollinger_n, m=config.bollinger_m)
+    df = calculate_macd(df, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
+    df = calculate_rsi(df, period=config.rsi_period)
+    df = calculate_obv(df)
+    df = calculate_volume_ratio(df)
+    cache.save_bollinger_history(symbol, stock_info.name, df)
+
+    # 运行策略信号生成
+    strategy = _get_strategy()
+    params = strategy.get_default_params()
+    df = strategy.generate_signals(df, params)
+    if "macd" not in df.columns:
+        df = calculate_macd(df)
+    if "rsi" not in df.columns:
+        df = calculate_rsi(df)
+
+    # 合并到现有 data_dict，重新扫描全部信号
+    with _data_lock:
+        merged_dict = dict(_data_state.get("data_dict", {}))
+    merged_dict[symbol] = (stock_info.name, df)
+    all_signals, _ = _scan_with_strategy(strategy, merged_dict, params)
+    buy_count = len([s for s in all_signals if s.signal_type == "BUY"])
+    sell_count = len([s for s in all_signals if s.signal_type == "SELL"])
+    enhanced_count = len([s for s in all_signals if s.is_enhanced])
+
+    # 保存缓存 + 更新全局状态
+    scan_time = datetime.now()
+    cache.save_signals(all_signals)
+    cache.save_metadata(
+        config=config, scan_time=scan_time,
+        buy_count=buy_count, sell_count=sell_count,
+        enhanced_count=enhanced_count,
+        total_stocks=len(merged_dict),
+    )
+    with _data_lock:
+        _data_state.update({
+            "signals": all_signals, "data_dict": merged_dict,
+            "buy_count": buy_count, "sell_count": sell_count,
+            "enhanced_count": enhanced_count,
+            "total_stocks": len(merged_dict),
+            "scan_time": scan_time.isoformat(), "loading": False,
+            "error": None,
+        })
+
+    return jsonify({
+        "success": True, "symbol": symbol, "name": stock_info.name,
+        "meta": {
+            "scan_time": scan_time.isoformat(),
+            "buy_count": buy_count, "sell_count": sell_count,
+            "enhanced_count": enhanced_count,
+            "total_stocks": len(merged_dict),
+        },
+    })
 
 
 @app.route("/api/watchlist/groups")
