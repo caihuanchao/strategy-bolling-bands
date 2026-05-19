@@ -14,10 +14,13 @@ from .config import get_config, ensure_dirs
 from .backtest import BacktestResult, Trade
 
 
-def print_performance_report(result: BacktestResult):
+def print_performance_report(result: BacktestResult, symbol: str = "", name: str = ""):
     """打印绩效报告到控制台"""
+    config = get_config()
+    symbol = symbol or config.symbol
+    name = name or config.symbol_name
     print("\n" + "=" * 60)
-    print(f"回测绩效报告 - {get_config().symbol_name}({get_config().symbol})")
+    print(f"回测绩效报告 - {name}({symbol})")
     print("=" * 60)
     print(f"初始资金:     ¥{result.initial_capital:,.2f}")
     print(f"最终资金:     ¥{result.final_capital:,.2f}")
