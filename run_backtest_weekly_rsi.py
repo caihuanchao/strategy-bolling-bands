@@ -4,10 +4,10 @@
 import sys
 import os
 import csv
+import pandas as pd
 from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.data_fetcher import get_stock_data
 from src.backtest import run_backtest_with_strategy, backtest_result_to_dict
 from src.strategies.weekly_rsi import WeeklyRsiStrategy
 from src.output import print_performance_report
@@ -16,6 +16,15 @@ SYMBOL = "513910"
 NAME = "港股通央企红利ETF华夏"
 INITIAL_CAPITAL = 100_000
 LOT_SIZE = 100  # A股ETF
+CACHE_FILE = "data/港股通央企红利ETF华夏_513910_daily_20250101.csv"
+
+# 回测参数
+PARAMS = {
+    "rsi_period": 6,
+    "rsi_oversold": 50,
+    "rsi_overbought": 60,
+    "divergence_lookback": 20,
+}
 
 
 def save_trades_csv(trades, symbol):
@@ -45,7 +54,7 @@ def main():
     print("=" * 60)
 
     strategy = WeeklyRsiStrategy()
-    params = strategy.get_default_params()
+    params = PARAMS
 
     print(f"标的: {NAME}({SYMBOL})")
     print(f"策略: {strategy.strategy_name}")
@@ -53,8 +62,11 @@ def main():
     print(f"初始资金: ¥{INITIAL_CAPITAL:,.0f}")
     print()
 
-    print("获取数据...")
-    df = get_stock_data(symbol=SYMBOL, name=NAME)
+    print("从本地缓存加载数据...")
+    if not os.path.exists(CACHE_FILE):
+        print(f"错误: 缓存文件不存在: {CACHE_FILE}")
+        return 1
+    df = pd.read_csv(CACHE_FILE)
 
     if df is None or len(df) < 60:
         print("错误: 数据不足，至少需要 60 个交易日（~3个月）")
@@ -95,7 +107,7 @@ def main():
     )
 
     print()
-    print_performance_report(result)
+    print_performance_report(result, symbol=SYMBOL, name=NAME)
 
     if result.trades:
         path = save_trades_csv(result.trades, SYMBOL)
