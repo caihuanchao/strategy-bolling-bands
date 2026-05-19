@@ -60,9 +60,9 @@ class WeeklyRsiStrategy(StrategyBase):
         from src.optimizer import OptimizableParam
         return [
             OptimizableParam(key="rsi_period", label="RSI 周期", type="int",
-                             min=9, max=21, step=2, default=14),
+                             min=6, max=21, step=1, default=14),
             OptimizableParam(key="rsi_oversold", label="超卖阈值", type="int",
-                             min=30, max=40, step=5, default=35),
+                             min=30, max=50, step=5, default=35),
             OptimizableParam(key="rsi_overbought", label="超买阈值", type="int",
                              min=60, max=70, step=5, default=65),
             OptimizableParam(key="divergence_lookback", label="背离检测窗口", type="int",
