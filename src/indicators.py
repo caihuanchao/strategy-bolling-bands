@@ -425,3 +425,79 @@ def calculate_volume_ratio(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
         df["volume_ratio"] = np.nan
 
     return df
+
+
+# ═══════════════════════════════════════════════════════════════
+# K 线形态识别
+# ═══════════════════════════════════════════════════════════════
+
+def detect_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    检测 K 线形态：锤子线、射击之星、看涨吞没、看跌吞没
+
+    添加列: pattern_hammer, pattern_shooting_star, pattern_bullish_engulfing,
+            pattern_bearish_engulfing, pattern_bullish, pattern_bearish
+    """
+    df = df.copy()
+    n = len(df)
+
+    required = ["open", "high", "low", "close"]
+    if not all(c in df.columns for c in required):
+        for col in ["pattern_hammer", "pattern_shooting_star", "pattern_bullish_engulfing",
+                     "pattern_bearish_engulfing", "pattern_bullish", "pattern_bearish"]:
+            df[col] = 0
+        return df
+
+    o = df["open"].values
+    h = df["high"].values
+    l = df["low"].values
+    c = df["close"].values
+
+    hammer = np.zeros(n, dtype=int)
+    shooting_star = np.zeros(n, dtype=int)
+    bullish_engulfing = np.zeros(n, dtype=int)
+    bearish_engulfing = np.zeros(n, dtype=int)
+
+    for i in range(1, n):
+        if pd.isna(o[i]) or pd.isna(c[i]) or pd.isna(h[i]) or pd.isna(l[i]):
+            continue
+
+        body = abs(c[i] - o[i])
+        total_range = h[i] - l[i]
+        if total_range <= 0 or body <= 0:
+            continue
+
+        upper_shadow = h[i] - max(o[i], c[i])
+        lower_shadow = min(o[i], c[i]) - l[i]
+        body_ratio = body / total_range
+
+        # 锤子线：小实体在顶部，长下影，几乎无上影
+        if (body_ratio <= 0.3 and lower_shadow >= 2 * body and
+                upper_shadow <= 0.15 * total_range):
+            hammer[i] = 1
+
+        # 射击之星：小实体在底部，长上影，几乎无下影
+        if (body_ratio <= 0.3 and upper_shadow >= 2 * body and
+                lower_shadow <= 0.15 * total_range):
+            shooting_star[i] = 1
+
+        # 看涨吞没：前阴后阳，阳线实体完全包住前一根阴线实体
+        prev_body_high = max(o[i - 1], c[i - 1])
+        prev_body_low = min(o[i - 1], c[i - 1])
+        if (c[i - 1] < o[i - 1] and c[i] > o[i] and
+                o[i] < prev_body_low and c[i] > prev_body_high):
+            bullish_engulfing[i] = 1
+
+        # 看跌吞没：前阳后阴，阴线实体完全包住前一根阳线实体
+        if (c[i - 1] > o[i - 1] and c[i] < o[i] and
+                o[i] > prev_body_high and c[i] < prev_body_low):
+            bearish_engulfing[i] = 1
+
+    df["pattern_hammer"] = hammer
+    df["pattern_shooting_star"] = shooting_star
+    df["pattern_bullish_engulfing"] = bullish_engulfing
+    df["pattern_bearish_engulfing"] = bearish_engulfing
+    df["pattern_bullish"] = hammer | bullish_engulfing
+    df["pattern_bearish"] = shooting_star | bearish_engulfing
+
+    return df
