@@ -24,6 +24,8 @@
 | 三重确认策略解读 | `src/strategies/triple_confirm_interpreter.py` |
 | KDJ+BB+ATR 策略实现 | `src/strategies/kdj_bollinger_atr.py` |
 | KDJ+BB+ATR 策略解读 | `src/strategies/kdj_bollinger_atr_interpreter.py` |
+| 周线 RSI 策略实现 | `src/strategies/weekly_rsi.py` |
+| 周线 RSI 策略解读 | `src/strategies/weekly_rsi_interpreter.py` |
 | 策略注册中心 | `src/strategies/__init__.py` |
 | 信号生成和扫描 | `src/signals.py` |
 | 数据获取（多源 fallback） | `src/data_fetcher.py` |
@@ -73,7 +75,9 @@ strategy-bolling-bands/
 │   │   ├── triple_confirm.py                  # TripleConfirmStrategy（三重确认）
 │   │   ├── triple_confirm_interpreter.py      # interpret_triple_confirm_all(): 三重确认 7 维解读
 │   │   ├── kdj_bollinger_atr.py               # KdjBollingerAtrStrategy（KDJ+BB+ATR）
-│   │   └── kdj_bollinger_atr_interpreter.py   # interpret_kdj_bb_atr_all(): KDJ+BB+ATR 7 维解读
+│   │   ├── kdj_bollinger_atr_interpreter.py   # interpret_kdj_bb_atr_all(): KDJ+BB+ATR 7 维解读
+│   │   ├── weekly_rsi.py                      # WeeklyRsiStrategy（周线RSI）
+│   │   └── weekly_rsi_interpreter.py          # interpret_weekly_rsi_all(): 周线RSI 5 维解读
 │   ├── optimizer/                 # 参数优化框架
 │   │   ├── __init__.py                        # OptimizableParam, OptimizationResult, BaseOptimizer
 │   │   ├── grid_search.py                     # GridSearchOptimizer（暴力遍历）
@@ -120,6 +124,8 @@ strategy-bolling-bands/
 | 三重确认解读 | `src/strategies/triple_confirm_interpreter.py` | 三重确认 7 维解读 | `interpret_triple_confirm_all()` → 信号等级/MACD/RSI/成交量/辅助/出场/建议 |
 | KDJ+BB+ATR 策略 | `src/strategies/kdj_bollinger_atr.py` | 三环境自适应系统 | `KdjBollingerAtrStrategy.generate_signals()`, `create_signal()` |
 | KDJ+BB+ATR 解读 | `src/strategies/kdj_bollinger_atr_interpreter.py` | KDJ+BB+ATR 7 维解读 | `interpret_kdj_bb_atr_all()` → 环境/信号等级/KDJ/布林带/ATR/出场/建议 |
+| 周线 RSI 策略 | `src/strategies/weekly_rsi.py` | 周线 RSI 背离+超买超卖 | `WeeklyRsiStrategy.generate_signals()`, `create_signal()` |
+| 周线 RSI 解读 | `src/strategies/weekly_rsi_interpreter.py` | 周线 RSI 5 维解读 | `interpret_weekly_rsi_all()` → RSI状态/背离/中轴/信号摘要/建议 |
 | 优化框架 | `src/optimizer/__init__.py` | 优化器 ABC + 数据类 | `BaseOptimizer`, `OptimizableParam`, `OptimizationResult` |
 | 网格搜索 | `src/optimizer/grid_search.py` | 暴力遍历所有参数组合 | `GridSearchOptimizer.optimize()` |
 | 贝叶斯优化 | `src/optimizer/bayesian.py` | Optuna TPE + 粗网格初始化 + 早停 | `BayesianOptimizer.optimize()` |
@@ -180,7 +186,7 @@ python3 tests/test_optimizer.py
 
 | 变量 | 类型 | 用途 |
 |------|------|------|
-| `currentStrategyId` | string | 当前活跃策略 ID (`"bollinger"` / `"dual_ma"` / `"volume_analysis"` / `"triple_confirm"` / `"kdj_bollinger_atr"`) |
+| `currentStrategyId` | string | 当前活跃策略 ID (`"bollinger"` / `"dual_ma"` / `"volume_analysis"` / `"triple_confirm"` / `"kdj_bollinger_atr"` / `"weekly_rsi"`) |
 | `strategiesList` | array | `/api/strategies` 返回的策略列表缓存 |
 | `signalsData` | object | `/api/signals` 返回的完整响应 |
 | `stocksData` | object | `/api/stocks` 返回的完整响应 |
@@ -232,6 +238,7 @@ _data_state = {signals, data_dict, buy_count, sell_count, ...}
     │                               ├── volume_analysis: interpret_volume_all()
     │                               ├── triple_confirm: interpret_triple_confirm_all()
     │                               └── kdj_bollinger_atr: interpret_kdj_bb_atr_all()
+│                               └── weekly_rsi: interpret_weekly_rsi_all()
     ├──→ GET /api/params    → 参数实验室（策略专属预设 + 市场快照 + 滑块）
     ├──→ POST /api/params   → _background_param_recalc() → 重算 → 更新 _data_state
     ├──→ POST /api/strategy/switch → 切换策略 → _background_param_recalc() → 全量重算

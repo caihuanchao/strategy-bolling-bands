@@ -33,6 +33,8 @@ from src.strategies.triple_confirm import TripleConfirmStrategy
 from src.strategies.triple_confirm_interpreter import interpret_triple_confirm_all
 from src.strategies.kdj_bollinger_atr import KdjBollingerAtrStrategy
 from src.strategies.kdj_bollinger_atr_interpreter import interpret_kdj_bb_atr_all
+from src.strategies.weekly_rsi import WeeklyRsiStrategy
+from src.strategies.weekly_rsi_interpreter import interpret_weekly_rsi_all
 from src.optimizer.grid_search import GridSearchOptimizer
 from src.optimizer.bayesian import BayesianOptimizer
 from src.optimizer.cache import load_cached_result, save_cached_result, _make_cache_key
@@ -46,6 +48,7 @@ _registry.register(DualMAStrategy())
 _registry.register(VolumeAnalysisStrategy())
 _registry.register(TripleConfirmStrategy())
 _registry.register(KdjBollingerAtrStrategy())
+_registry.register(WeeklyRsiStrategy())
 
 # 全局数据状态
 _data_lock = threading.Lock()
@@ -552,9 +555,14 @@ def api_stock_detail(symbol):
     if current_strategy_id == "kdj_bollinger_atr":
         kdj_bb_atr_interpretation = interpret_kdj_bb_atr_all(df)
 
+    # 周线 RSI 策略专属解读
+    weekly_rsi_interpretation = None
+    if current_strategy_id == "weekly_rsi":
+        weekly_rsi_interpretation = interpret_weekly_rsi_all(df)
+
     # 收口突破检测（仅布林带策略）
     squeeze_data = None
-    if current_strategy_id not in ("dual_ma", "volume_analysis", "triple_confirm", "kdj_bollinger_atr"):
+    if current_strategy_id not in ("dual_ma", "volume_analysis", "triple_confirm", "kdj_bollinger_atr", "weekly_rsi"):
         df_squeeze = detect_squeeze_breakout(df)
         latest_sq = df_squeeze.iloc[-1]
         squeeze_data = {
@@ -607,6 +615,7 @@ def api_stock_detail(symbol):
         "volume_interpretation": volume_interpretation,
         "triple_confirm_interpretation": triple_confirm_interpretation,
         "kdj_bb_atr_interpretation": kdj_bb_atr_interpretation,
+        "weekly_rsi_interpretation": weekly_rsi_interpretation,
         # 成交量策略专属字段（前端策略感知渲染用）
         "obv": _safe_float(latest.get("obv")),
         "conditions_met": int(latest.get("conditions_met", 0)) if pd.notna(latest.get("conditions_met")) else 0,
