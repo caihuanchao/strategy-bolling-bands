@@ -367,3 +367,61 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df["minus_di"] = minus_di
 
     return df
+
+
+def calculate_obv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    计算 OBV (能量潮指标)
+
+    OBV = 前一日 OBV + 今日成交量（若收涨）或 - 今日成交量（若收跌）
+
+    Args:
+        df: 包含 close, volume 列的 DataFrame
+
+    Returns:
+        添加了 obv 列的 DataFrame
+    """
+    df = df.copy()
+    n = len(df)
+
+    if n == 0 or "close" not in df.columns or "volume" not in df.columns:
+        df["obv"] = np.nan
+        return df
+
+    close = df["close"].values
+    volume = df["volume"].values
+    obv = np.zeros(n)
+    obv[0] = volume[0]
+
+    for i in range(1, n):
+        if close[i] > close[i - 1]:
+            obv[i] = obv[i - 1] + volume[i]
+        elif close[i] < close[i - 1]:
+            obv[i] = obv[i - 1] - volume[i]
+        else:
+            obv[i] = obv[i - 1]
+
+    df["obv"] = obv
+    return df
+
+
+def calculate_volume_ratio(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """
+    计算量比 (当日成交量 / N日均量)
+
+    Args:
+        df: 包含 volume 列的 DataFrame
+        window: 均量窗口
+
+    Returns:
+        添加了 volume_ratio 列的 DataFrame
+    """
+    df = df.copy()
+
+    if "volume" in df.columns and len(df) >= window:
+        avg_volume = df["volume"].rolling(window=window).mean()
+        df["volume_ratio"] = np.where(avg_volume > 0, df["volume"] / avg_volume, np.nan)
+    else:
+        df["volume_ratio"] = np.nan
+
+    return df

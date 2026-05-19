@@ -17,8 +17,8 @@ from src.lot_size import get_lot_size_map
 from src.data_fetcher import fetch_batch_data
 from src.bollinger import calculate_bollinger
 from src.signals import Signal
-from src.indicators import calculate_macd, calculate_rsi
-from src.indicator_interpreter import interpret_all
+from src.indicators import calculate_macd, calculate_rsi, calculate_obv, calculate_volume_ratio
+from src.indicator_interpreter import interpret_all, interpret_volume_light
 from src.squeeze import detect_squeeze_breakout, scan_squeeze_history, check_cross_validation
 from src import cache
 
@@ -151,6 +151,8 @@ def load_data():
         df = calculate_bollinger(df, n=config.bollinger_n, m=config.bollinger_m)
         df = calculate_macd(df, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
         df = calculate_rsi(df, period=config.rsi_period)
+        df = calculate_obv(df)
+        df = calculate_volume_ratio(df)
         data_dict_base[symbol] = (name, df)
         cache.save_bollinger_history(symbol, name, df)
 
@@ -532,6 +534,9 @@ def api_stock_detail(symbol):
 
     interpretation = interpret_all(latest_sanitized, prev_sanitized)
 
+    # 成交量轻量解读（通用层，所有策略生效）
+    volume_light_interpretation = interpret_volume_light(df)
+
     # 策略感知：当前策略 ID
     current_strategy_id = _current_strategy_id
 
@@ -610,6 +615,7 @@ def api_stock_detail(symbol):
         },
         "history": history,
         "interpretation": interpretation,
+        "volume_light_interpretation": volume_light_interpretation,
         "squeeze": squeeze_data,
         "dual_ma_interpretation": dual_ma_interpretation,
         "volume_interpretation": volume_interpretation,

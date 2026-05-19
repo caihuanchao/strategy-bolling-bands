@@ -5,6 +5,10 @@
 参考案例：docs/技术指标解读案例
 """
 
+import pandas as pd
+import numpy as np
+
+
 def interpret_all(latest, prev=None):
     """
     为所有指标生成结构化解读。
@@ -566,3 +570,277 @@ def _bollinger_checklist(r):
 
     items.append("布林带信号需结合成交量与 MACD/RSI 综合判断")
     return items
+
+
+# ── 成交量轻量解读（通用层，所有策略生效）────────────────────────────────
+
+
+def interpret_volume_light(df: pd.DataFrame) -> dict:
+    """
+    生成成交量轻量解读（4 维），对所有策略通用。
+
+    需要 DataFrame 包含 volume_ratio, obv, close 列。
+
+    Returns:
+        {"price_volume": {...}, "obv_trend": {...}, "divergence": {...}, "advice": {...}}
+    """
+    if "volume_ratio" not in df.columns and "obv" not in df.columns:
+        return {"error": "数据不足：缺少 volume_ratio 或 obv 列"}
+
+    result = {}
+    result["price_volume"] = _interpret_price_volume(df)
+    result["obv_trend"] = _interpret_obv_trend(df)
+    result["divergence"] = _interpret_obv_divergence(df)
+    result["advice"] = _volume_advice(result)
+    return result
+
+
+def _interpret_price_volume(df: pd.DataFrame) -> dict:
+    """量价关系判定"""
+    recent = df.tail(2)
+    if len(recent) < 2:
+        return {"status": "数据不足", "detail": "", "summary": "", "checklist": []}
+
+    cur = recent.iloc[-1]
+    prev = recent.iloc[-2]
+
+    vr = float(cur.get("volume_ratio")) if pd.notna(cur.get("volume_ratio")) else None
+    close_cur = float(cur.get("close", 0))
+    close_prev = float(prev.get("close", 0))
+    pct = round((close_cur - close_prev) / close_prev * 100, 2) if close_prev else 0
+
+    if vr is None:
+        return {"status": "数据不足", "detail": "", "summary": "", "checklist": []}
+
+    vr_round = round(vr, 2)
+
+    if vr >= 1.5 and pct > 0:
+        status = "放量上涨"
+        status_label = "放量上涨 🔥"
+        detail = f"量比 {vr_round}x（放量），价格涨 {pct}%。成交量显著放大且价格上涨，说明资金主动买入意愿强，短期动能充足。"
+        checklist = [
+            "放量上涨是健康的多头信号，可顺势持有",
+            "若量比 > 2.0x 且涨幅较大，短期可能过热，追高需谨慎",
+            "连续放量上涨后缩量回调是较好的加仓机会",
+        ]
+    elif vr >= 1.5 and pct <= 0:
+        status = "放量下跌"
+        status_label = "放量下跌 ⚠️"
+        detail = f"量比 {vr_round}x（放量），价格跌 {abs(pct)}%。放量下跌说明有资金主动卖出，短期抛压较大，需警惕。"
+        checklist = [
+            "放量下跌是空头信号，不建议贸然抄底",
+            "观察后续是否能缩量企稳，若持续放量下跌需减仓",
+            "若为恐慌性放量急跌，可能短期见底，等待缩量确认",
+        ]
+    elif vr < 0.8 and pct > 0:
+        status = "缩量上涨"
+        status_label = "缩量上涨"
+        detail = f"量比 {vr_round}x（缩量），价格涨 {pct}%。缩量上涨说明卖压不大但买盘也不积极，上涨持续性存疑。"
+        checklist = [
+            "缩量上涨在上升趋势中可能是健康的（筹码锁定好）",
+            "在反弹中出现缩量上涨，需警惕反弹乏力",
+            "关注后续是否补量，若持续缩量上涨则趋势可能转弱",
+        ]
+    elif vr < 0.8 and pct <= 0:
+        status = "缩量下跌"
+        status_label = "缩量下跌"
+        detail = f"量比 {vr_round}x（缩量），价格跌 {abs(pct)}%。缩量下跌说明抛压在减弱，可能进入止跌或磨底阶段。"
+        checklist = [
+            "缩量下跌是止跌前兆，但不等同于反转",
+            "等待放量阳线确认底部后再入场",
+            "若缩量下跌持续时间长，可能是阴跌，不宜左侧抄底",
+        ]
+    else:
+        status = "正常量能"
+        status_label = "正常量能"
+        detail = f"量比 {vr_round}x，价格变动 {pct}%。成交量处于正常范围，量价关系中性。"
+        checklist = [
+            "正常量能下趋势延续概率大",
+            "关注后续是否出现放量突破或缩量衰竭信号",
+        ]
+
+    return {
+        "status": status,
+        "status_label": status_label,
+        "volume_ratio": vr_round,
+        "price_change_pct": pct,
+        "detail": detail,
+        "summary": f"量比 {vr_round}x，{status_label}。{detail[:50]}...",
+        "checklist": checklist,
+    }
+
+
+def _interpret_obv_trend(df: pd.DataFrame) -> dict:
+    """OBV 趋势判定（最近 5 日）"""
+    if "obv" not in df.columns:
+        return {"status": "数据不足", "detail": "", "summary": "", "checklist": []}
+
+    obv_vals = df["obv"].dropna()
+    if len(obv_vals) < 5:
+        return {"status": "数据不足", "detail": "", "summary": "", "checklist": []}
+
+    recent = obv_vals.iloc[-5:]
+    cur = float(recent.iloc[-1])
+    start = float(recent.iloc[0])
+    obv_change = cur - start
+
+    # 判定高低点（最近 20 日范围）
+    all_vals = obv_vals.iloc[-20:] if len(obv_vals) >= 20 else obv_vals
+    obv_max = float(all_vals.max())
+    obv_min = float(all_vals.min())
+    at_high = cur >= obv_max * 0.98
+    at_low = cur <= obv_min * 1.02
+
+    if obv_change > 0:
+        trend = "上升"
+        detail = "近 5 日 OBV 整体上升，说明资金在持续流入，量能配合较好。"
+        checklist = [
+            "OBV 上升确认资金流入趋势",
+            "若价格同步上涨则趋势健康，可顺势操作",
+            "若 OBV 创新高则中期看好",
+        ]
+    elif obv_change < 0:
+        trend = "下降"
+        detail = "近 5 日 OBV 整体下降，说明资金在持续流出，量能配合偏空。"
+        checklist = [
+            "OBV 下降说明资金流出，短期偏谨慎",
+            "若价格同步下跌则空头趋势延续",
+            "等待 OBV 企稳回升后再考虑入场",
+        ]
+    else:
+        trend = "走平"
+        detail = "近 5 日 OBV 变化不大，资金流向均衡，方向不明。"
+        checklist = [
+            "OBV 走平时以观望为主",
+            "关注后续 OBV 突破方向，放量方向即趋势方向",
+        ]
+
+    if at_high and trend == "上升":
+        status_label = f"OBV {trend}（近高点）"
+        detail += " OBV 接近近期高点，若能突破则打开上行空间。"
+    elif at_low and trend == "下降":
+        status_label = f"OBV {trend}（近低点）"
+        detail += " OBV 接近近期低点，关注是否获得支撑。"
+    else:
+        status_label = f"OBV {trend}"
+
+    return {
+        "status": trend,
+        "status_label": status_label,
+        "obv_trend": trend,
+        "obv_at_high": at_high,
+        "obv_at_low": at_low,
+        "detail": detail,
+        "summary": f"OBV 近 5 日{trend}趋势，{'接近高点' if at_high else '接近低点' if at_low else '区间运行'}。",
+        "checklist": checklist,
+    }
+
+
+def _interpret_obv_divergence(df: pd.DataFrame) -> dict:
+    """OBV 与价格背离检测（最近 10 日）"""
+    if "obv" not in df.columns:
+        return {"status": "无数据", "detail": "", "summary": "", "checklist": []}
+
+    recent = df.tail(10)
+    if len(recent) < 10:
+        return {"status": "数据不足", "detail": "", "summary": "", "checklist": []}
+
+    close_start = float(recent["close"].iloc[0])
+    close_end = float(recent["close"].iloc[-1])
+    obv_start = float(recent["obv"].iloc[0])
+    obv_end = float(recent["obv"].iloc[-1])
+
+    price_up = close_end > close_start * 1.01  # 涨超 1%
+    price_down = close_end < close_start * 0.99  # 跌超 1%
+    obv_up = obv_end > obv_start * 1.02
+    obv_down = obv_end < obv_start * 0.98
+
+    if price_down and obv_up:
+        status = "底背离"
+        status_label = "底背离（看涨）"
+        detail = "近 10 日价格下跌但 OBV 上升，说明虽然价格走低但资金在流入吸筹，是潜在的中期底部信号。"
+        checklist = [
+            "OBV 底背离是较可靠的中期看涨信号",
+            "等待价格止跌企稳或放量反弹确认后可入场",
+            "若背离持续多日不反转，说明主力吸筹周期较长",
+        ]
+    elif price_up and obv_down:
+        status = "顶背离"
+        status_label = "顶背离（看跌）"
+        detail = "近 10 日价格上涨但 OBV 下降，说明虽然价格走高但资金在流出，是潜在的中期顶部信号。"
+        checklist = [
+            "OBV 顶背离是较可靠的中期看跌信号",
+            "持有者可考虑逐步减仓",
+            "等待价格跌破关键支撑位确认后离场",
+        ]
+    elif price_up and obv_up:
+        status = "量价同步"
+        status_label = "量价同步（健康）"
+        detail = "近 10 日价格与 OBV 同步上升，量价配合良好，趋势健康。"
+        checklist = [
+            "量价同步上升是健康的上涨趋势",
+            "可顺势持有或逢回调加仓",
+        ]
+    elif price_down and obv_down:
+        status = "量价同步"
+        status_label = "量价同步（偏空）"
+        detail = "近 10 日价格与 OBV 同步下降，量价配合偏空，趋势偏弱。"
+        checklist = [
+            "量价同步下跌确认空头趋势",
+            "以观望为主，等待 OBV 企稳",
+        ]
+    else:
+        status = "无明显背离"
+        status_label = "无明显背离"
+        detail = "近 10 日价格与 OBV 未出现明显背离信号，量价关系中性。"
+        checklist = [
+            "无背离信号时以趋势跟随为主",
+            "关注后续是否出现背离确认信号",
+        ]
+
+    return {
+        "status": status,
+        "status_label": status_label,
+        "detail": detail,
+        "summary": f"OBV 与价格{status_label}。" + (f" {detail[:40]}..." if len(detail) > 40 else f" {detail}"),
+        "checklist": checklist,
+    }
+
+
+def _volume_advice(result: dict) -> dict:
+    """综合成交量操作建议"""
+    pv = result.get("price_volume", {})
+    obv_t = result.get("obv_trend", {})
+    div = result.get("divergence", {})
+
+    hints = []
+
+    # 量价关系建议
+    pv_status = pv.get("status", "")
+    if pv_status == "放量上涨":
+        hints.append("当前放量上涨，动能充足，可顺势持有")
+    elif pv_status == "放量下跌":
+        hints.append("当前放量下跌，短期风险较大，建议观望或减仓")
+    elif pv_status == "缩量上涨":
+        hints.append("当前缩量上涨，关注后续是否补量确认趋势")
+    elif pv_status == "缩量下跌":
+        hints.append("当前缩量下跌，抛压减弱但不宜左侧抄底，等放量阳线确认")
+
+    # 背离优先覆盖
+    div_status = div.get("status", "")
+    if div_status == "底背离":
+        hints = ["OBV 底背离信号出现，可密切关注中期底部机会", "等待价格企稳确认后分批建仓"]
+    elif div_status == "顶背离":
+        hints = ["OBV 顶背离信号出现，注意中期回调风险", "持有者应考虑减仓或设好止盈"]
+
+    # OBV 趋势
+    obv_trend = obv_t.get("obv_trend", "")
+    if obv_trend == "下降" and div_status not in ("底背离", "顶背离"):
+        hints.append("OBV 趋势下降，资金流出，短期偏谨慎")
+
+    hints.append("成交量是辅助确认工具，需结合价格趋势和主力资金流向综合判断")
+
+    return {
+        "action": hints[0] if hints else "信号中性，以观望为主",
+        "details": hints[1:] if len(hints) > 1 else [],
+    }

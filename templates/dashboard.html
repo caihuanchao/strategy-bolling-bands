@@ -1040,6 +1040,17 @@
                 if (l.volume_ratio) {
                     html += '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>';
                 }
+                // OBV 趋势（取最后两个数据点的 obv 值判断方向）
+                if (histArr.length >= 2) {
+                    var lastObv = histArr[histArr.length - 1].obv;
+                    var prevObv = histArr[histArr.length - 2].obv;
+                    if (lastObv != null && prevObv != null) {
+                        var obvDir = lastObv > prevObv ? '↗' : lastObv < prevObv ? '↘' : '→';
+                        var obvClr = lastObv > prevObv ? '#16a34a' : lastObv < prevObv ? '#dc2626' : '#999';
+                        var obvDisp = lastObv > 1000000 ? (lastObv / 1000000).toFixed(1) + 'M' : lastObv > 1000 ? (lastObv / 1000).toFixed(0) + 'K' : lastObv.toFixed(0);
+                        html += '<div class="detail-stat"><div class="val" style="color:' + obvClr + '">' + obvDir + ' ' + obvDisp + '</div><div class="lbl">OBV趋势</div></div>';
+                    }
+                }
                 html += '</div>';
 
                 // MACD + RSI 指标卡片 + 解读
@@ -1080,7 +1091,7 @@
 
                 // 技术指标深度解读
                 if (data.interpretation) {
-                    html += renderInterpretation(data.interpretation, isDualMA, isVolumeAnalysis, data.dual_ma_interpretation, data.volume_interpretation, data.triple_confirm_interpretation, isTripleConfirm, data.kdj_bb_atr_interpretation, isKdjBbAtr);
+                    html += renderInterpretation(data.interpretation, isDualMA, isVolumeAnalysis, data.dual_ma_interpretation, data.volume_interpretation, data.triple_confirm_interpretation, isTripleConfirm, data.kdj_bb_atr_interpretation, isKdjBbAtr, data.volume_light_interpretation);
                 }
 
                 body.innerHTML = html;
@@ -1940,7 +1951,7 @@
             el.innerHTML = html;
         }
 
-        function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp, tripleConfirmInterp, isTripleConfirm, kdjBbAtrInterp, isKdjBbAtr) {
+        function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp, tripleConfirmInterp, isTripleConfirm, kdjBbAtrInterp, isKdjBbAtr, volumeLightInterp) {
             if (!interp) return '';
             var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
 
@@ -2009,6 +2020,29 @@
                     html += '</ul>';
                 }
                 html += '</div>';
+            }
+
+            // 成交量轻量解读（通用层，所有策略生效）
+            if (volumeLightInterp && !volumeLightInterp.error) {
+                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">成交量分析</h3>';
+                html += _renderVolCard('量价关系', 'interp-macd', volumeLightInterp.price_volume, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeLightInterp.price_volume.status_label || '-') + '</span>' +
+                        '<span class="interp-metric"><strong>量比:</strong> ' + (volumeLightInterp.price_volume.volume_ratio != null ? volumeLightInterp.price_volume.volume_ratio.toFixed(1) + 'x' : '-') + '</span>' +
+                        '<span class="interp-metric"><strong>涨跌:</strong> ' + (volumeLightInterp.price_volume.price_change_pct != null ? volumeLightInterp.price_volume.price_change_pct + '%' : '-') + '</span>'
+                });
+                html += _renderVolCard('OBV 能量潮', 'interp-bollinger', volumeLightInterp.obv_trend, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeLightInterp.obv_trend.status_label || '-') + '</span>' +
+                        (volumeLightInterp.obv_trend.obv_at_high ? '<span class="interp-metric" style="color:#16a34a">OBV近高点</span>' : '') +
+                        (volumeLightInterp.obv_trend.obv_at_low ? '<span class="interp-metric" style="color:#dc2626">OBV近低点</span>' : '')
+                });
+                html += _renderVolCard('量价背离', 'interp-rsi', volumeLightInterp.divergence, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeLightInterp.divergence.status_label || '-') + '</span>'
+                });
+                html += _renderVolCard('操作建议', 'interp-macd', volumeLightInterp.advice, {
+                    metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeLightInterp.advice.action || '') + '</span>',
+                    extra: volumeLightInterp.advice.details && volumeLightInterp.advice.details.length > 0 ?
+                        volumeLightInterp.advice.details.map(function(d) { return '<div class="interp-desc">' + d + '</div>'; }).join('') : ''
+                });
             }
 
             // Dual MA interpretation cards
