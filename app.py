@@ -5,6 +5,7 @@ import sys
 import os
 import threading
 from datetime import datetime
+from typing import List, Optional
 
 # 添加当前目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -109,8 +110,13 @@ def _scan_with_strategy(strategy, data_dict, params):
     return signals, new_data_dict
 
 
-def load_data():
-    """加载数据：自选股 → 获取行情 → 计算指标 → 扫描信号"""
+def load_data(groups: Optional[List[str]] = None, force_refresh: bool = False):
+    """加载数据：自选股 → 获取行情 → 计算指标 → 扫描信号
+
+    Args:
+        groups: 可选分组过滤，如 ["A股", "ETF"]。None 表示全量。
+        force_refresh: 是否强制全量刷新（跳过增量缓存）。
+    """
     global _data_state
 
     config = get_config()
@@ -128,6 +134,13 @@ def load_data():
             _data_state["loading"] = False
         return
 
+    # 分组过滤
+    if groups is not None:
+        stocks = [s for s in stocks if s.group in groups]
+        if len(stocks) == 0:
+            print(f"定时更新: 分组 {groups} 无匹配股票，跳过")
+            return
+
     # 获取每手股数映射（港股需网络请求，首次慢后续缓存）
     lot_size_map = get_lot_size_map(stocks)
 
@@ -137,6 +150,7 @@ def load_data():
         period=config.period,
         start_date=config.start_date,
         use_cache=True,
+        force_refresh=force_refresh,
         request_interval=0.5,
     )
 
@@ -160,6 +174,19 @@ def load_data():
     strategy = _get_strategy()
     params = strategy.get_default_params()
     signals, data_dict_full = _scan_with_strategy(strategy, data_dict_base, params)
+
+    # 分组更新时合并现有数据，再重新扫描全部信号
+    if groups is not None:
+        with _data_lock:
+            merged_dict = dict(_data_state.get("data_dict", {}))
+            merged_lot_map = dict(_data_state.get("lot_size_map", {}))
+        merged_dict.update(data_dict_full)
+        merged_lot_map.update(lot_size_map)
+        # 用合并后的完整字典重新扫描信号
+        all_signals, _ = _scan_with_strategy(strategy, merged_dict, params)
+        signals = all_signals
+        data_dict_full = merged_dict
+        lot_size_map = merged_lot_map
 
     buy_count = len([s for s in signals if s.signal_type == "BUY"])
     sell_count = len([s for s in signals if s.signal_type == "SELL"])

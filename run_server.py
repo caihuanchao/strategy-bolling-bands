@@ -66,20 +66,43 @@ def main():
         pass
 
     # 启动 Flask 应用
-    from app import app, load_cached_data, background_refresh, _data_state
-    import threading
+    from app import app, load_cached_data, load_data, _data_state
 
-    # 1. 先从缓存加载（秒级）
+    # 1. 先从缓存加载（秒级，不访问网络）
     print("\n正在加载缓存数据...")
     load_cached_data()
     print(f"✅ 缓存加载完成: {_data_state['total_stocks']} 只股票")
     if _data_state["error"]:
         print(f"⚠️  警告: {_data_state['error']}")
 
-    # 2. 启动后台刷新线程
-    refresh_thread = threading.Thread(target=background_refresh, daemon=True)
-    refresh_thread.start()
-    print("🔄 后台刷新最新数据中...")
+    # 2. 启动定时更新任务
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        lambda: load_data(force_refresh=True),
+        CronTrigger(day_of_week='mon-fri', hour=8, minute=0),
+        id='full_refresh_0800',
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        lambda: load_data(groups=["A股", "ETF"]),
+        CronTrigger(day_of_week='mon-fri', hour=14, minute=30),
+        id='a_etf_update_1430',
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        lambda: load_data(groups=["港股"]),
+        CronTrigger(day_of_week='mon-fri', hour=15, minute=30),
+        id='hk_update_1530',
+        misfire_grace_time=300,
+    )
+    scheduler.start()
+    print("⏰ 定时任务已启动:")
+    print("   工作日 08:00 - 全量更新")
+    print("   工作日 14:30 - A股+ETF 更新")
+    print("   工作日 15:30 - 港股更新")
 
     app.run(host="0.0.0.0", port=5001, debug=False)
 
