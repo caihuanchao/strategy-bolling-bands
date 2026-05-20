@@ -5,37 +5,203 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>布林带策略工作台</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f5f7fa; color: #333; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-        header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; position: relative; }
-        header h1 { font-size: 28px; margin-bottom: 10px; }
-        header p { font-size: 16px; opacity: 0.9; }
-        header .refresh-btn { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
-        header .refresh-btn:hover { background: rgba(255,255,255,0.3); }
-        header .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .strategy-select { display: inline-block; margin-right: 12px; }
-        .strategy-select select { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; outline: none; min-width: 160px; }
-        .strategy-select select option { color: #333; background: white; }
-        .strategy-select select option:disabled { color: #95a5a6; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
-        .stat-value { font-size: 32px; font-weight: bold; }
-        .stat-value.buy { color: #e74c3c; }
-        .stat-value.sell { color: #27ae60; }
-        .stat-value.enhanced { color: #9b59b6; }
-        .stat-label { color: #7f8c8d; margin-top: 5px; }
-
-        /* Strategy Detail Panel */
-        .strategy-panel {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            border-radius: 12px;
-            margin-bottom: 24px;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-            transition: box-shadow 0.2s;
+        /* ═══ CSS Custom Properties ═══ */
+        :root {
+            --bg-primary: #090d1a;
+            --bg-sidebar: #111827;
+            --bg-card: #141a2e;
+            --bg-card-hover: #1a2240;
+            --bg-input: #1a2030;
+            --bg-modal: #151d2e;
+            --border-color: #1e2a45;
+            --border-light: rgba(255,255,255,0.06);
+            --text-primary: #e2e8f0;
+            --text-heading: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56,189,248,0.25);
+            --buy: #ef4444;
+            --sell: #22c55e;
+            --enhanced: #a78bfa;
+            --amber: #f59e0b;
+            --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+            --shadow-md: 0 4px 20px rgba(0,0,0,0.3);
+            --shadow-lg: 0 10px 40px rgba(0,0,0,0.4);
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 10px;
+            --radius-xl: 12px;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Menlo', monospace;
+            --sidebar-width: 260px;
         }
-        .strategy-panel.expanded { box-shadow: 0 6px 28px rgba(0,0,0,0.18); }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ═══ Sidebar ═══ */
+        .sidebar {
+            width: var(--sidebar-width);
+            min-height: 100vh;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: 0;
+            overflow-y: auto;
+        }
+        .sidebar-brand {
+            padding: 24px 20px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-brand h2 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-heading);
+            margin: 0;
+            letter-spacing: 0.02em;
+        }
+        .sidebar-brand .brand-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            font-family: var(--font-mono);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .sidebar-section {
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-section-label {
+            padding: 0 20px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .sidebar-strategy { padding: 0 16px; }
+        .sidebar-strategy select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-input);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            outline: none;
+        }
+        .sidebar-strategy select:focus { border-color: var(--accent); }
+        .sidebar-strategy select option { color: var(--text-primary); background: var(--bg-card); }
+
+        /* Sidebar Nav Items */
+        .sidebar-nav { padding: 8px 0; }
+        .sidebar-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+            border-left: 3px solid transparent;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            user-select: none;
+        }
+        .sidebar-nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+        .sidebar-nav-item.active {
+            background: rgba(56,189,248,0.08);
+            color: var(--text-primary);
+            border-left-color: var(--accent);
+        }
+        .sidebar-nav-item .nav-icon { width: 18px; text-align: center; font-size: 13px; flex-shrink: 0; }
+
+        /* Sidebar Footer */
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+        }
+        .sidebar-refresh-btn {
+            width: 100%;
+            padding: 10px 16px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.15s, border-color 0.15s;
+            margin-bottom: 12px;
+        }
+        .sidebar-refresh-btn:hover { background: var(--bg-card-hover); border-color: var(--accent); }
+        .sidebar-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sidebar-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+        }
+        .sidebar-meta div { margin-bottom: 2px; }
+
+        /* ═══ Main Content ═══ */
+        .main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 28px 36px;
+            min-width: 0;
+        }
+
+        /* Stats Row */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 18px 16px;
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            letter-spacing: -0.02em;
+        }
+        .stat-value.buy { color: var(--buy); }
+        .stat-value.sell { color: var(--sell); }
+        .stat-value.enhanced { color: var(--enhanced); }
+        .stat-label { color: var(--text-muted); margin-top: 4px; font-size: 13px; }
+
+        /* ═══ Strategy Detail Panel ═══ */
+        .strategy-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-shadow: var(--shadow-md);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .strategy-panel.expanded { border-color: var(--accent); box-shadow: 0 6px 28px rgba(0,0,0,0.4); }
         .strategy-panel-header {
             display: flex;
             align-items: center;
@@ -48,7 +214,7 @@
         .strategy-panel-header:hover { background: rgba(255,255,255,0.03); }
         .strategy-panel-arrow {
             font-size: 12px;
-            color: #94a3b8;
+            color: var(--text-muted);
             transition: transform 0.35s ease;
             flex-shrink: 0;
         }
@@ -57,18 +223,18 @@
             width: 4px; height: 24px;
             border-radius: 2px;
             flex-shrink: 0;
-            background: #667eea;
+            background: var(--accent);
             transition: background 0.4s ease;
         }
         .strategy-panel-title {
             font-size: 15px;
             font-weight: 700;
-            color: #e2e8f0;
+            color: var(--text-heading);
             flex-shrink: 0;
         }
         .strategy-panel-summary {
             font-size: 13px;
-            color: #94a3b8;
+            color: var(--text-muted);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -79,9 +245,9 @@
             padding: 3px 10px;
             border-radius: 20px;
             letter-spacing: 0.04em;
-            background: rgba(255,255,255,0.08);
-            color: #a5b4fc;
-            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(56,189,248,0.12);
+            color: var(--accent);
+            border: 1px solid rgba(56,189,248,0.2);
             flex-shrink: 0;
             margin-left: auto;
         }
@@ -112,7 +278,7 @@
         .strategy-panel-section-label {
             font-size: 12px;
             font-weight: 600;
-            color: #64748b;
+            color: var(--text-dim);
             letter-spacing: 0.06em;
             text-transform: uppercase;
             flex-shrink: 0;
@@ -153,177 +319,246 @@
             border-radius: 50%;
             flex-shrink: 0;
         }
-        .strategy-signal-dot.buy { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.5); }
-        .strategy-signal-dot.sell { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+        .strategy-signal-dot.buy { background: var(--buy); box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+        .strategy-signal-dot.sell { background: var(--sell); box-shadow: 0 0 6px rgba(34,197,94,0.5); }
         .strategy-panel-stats {
             font-size: 12px;
-            color: #64748b;
-            border-top: 1px solid rgba(255,255,255,0.06);
+            color: var(--text-dim);
+            border-top: 1px solid var(--border-light);
             padding-top: 10px;
         }
-        .strategy-panel-stats strong { color: #e2e8f0; }
-        @media (max-width: 600px) {
+        .strategy-panel-stats strong { color: var(--text-primary); }
+
+        @media (max-width: 768px) {
             .strategy-panel-summary { display: none; }
             .strategy-panel-header { gap: 8px; }
         }
-        h2 { margin: 30px 0 15px; color: #2c3e50; }
-        .table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 30px; }
-        .table th { background: #34495e; color: white; padding: 15px; text-align: left; font-weight: 600; }
-        .table td { padding: 12px 15px; border-bottom: 1px solid #ecf0f1; }
-        .table tr:hover { background: #f8f9fa; cursor: pointer; }
+
+        /* ═══ Tables ═══ */
+        h2 { margin: 24px 0 12px; color: var(--text-heading); font-size: 18px; }
+        .table { width: 100%; border-collapse: collapse; background: var(--bg-card); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); margin-bottom: 24px; border: 1px solid var(--border-color); }
+        .table th { background: #1a2240; color: var(--text-primary); padding: 12px 15px; text-align: left; font-weight: 600; font-size: 13px; }
+        .table td { padding: 10px 15px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover { background: var(--bg-card-hover); cursor: pointer; }
         .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        .badge-buy { background: #fee2e2; color: #dc2626; }
-        .badge-sell { background: #dcfce7; color: #16a34a; }
-        .badge-enhanced { background: #f3e8ff; color: #7c3aed; }
-        .badge-normal { background: #f1f5f9; color: #64748b; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .tab { padding: 12px 24px; background: white; border-radius: 8px; cursor: pointer; border: none; font-size: 15px; font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .tab.active { background: #667eea; color: white; }
+        .badge-buy { background: rgba(239,68,68,0.15); color: var(--buy); }
+        .badge-sell { background: rgba(34,197,94,0.15); color: var(--sell); }
+        .badge-enhanced { background: rgba(167,139,250,0.15); color: var(--enhanced); }
+        .badge-normal { background: rgba(148,163,184,0.1); color: var(--text-muted); }
+
+        /* ═══ Tab Content ═══ */
         .tab-content { display: none; }
         .tab-content.active { display: block; }
-        footer { text-align: center; margin-top: 50px; padding: 20px; color: #7f8c8d; font-size: 14px; }
-        .empty { padding: 20px; color: #7f8c8d; text-align: center; }
+        footer { text-align: center; margin-top: 40px; padding: 20px; color: var(--text-dim); font-size: 13px; }
+        .empty { padding: 20px; color: var(--text-muted); text-align: center; }
 
-        /* Modal */
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        /* ═══ Modal ═══ */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
-        .modal { background: white; border-radius: 12px; max-width: 900px; width: 95%; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
-        .modal-header { padding: 20px 24px; border-bottom: 1px solid #ecf0f1; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; border-radius: 12px 12px 0 0; }
-        .modal-header h3 { font-size: 20px; color: #2c3e50; }
-        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #7f8c8d; padding: 4px 8px; border-radius: 4px; }
-        .modal-close:hover { background: #f1f5f9; }
+        .modal { background: var(--bg-modal); border: 1px solid var(--border-color); border-radius: var(--radius-xl); max-width: 900px; width: 95%; max-height: 85vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+        .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg-modal); border-radius: 12px 12px 0 0; z-index: 1; }
+        .modal-header h3 { font-size: 20px; color: var(--text-heading); }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-muted); padding: 4px 8px; border-radius: 4px; }
+        .modal-close:hover { background: var(--bg-card-hover); color: var(--text-primary); }
         .modal-body { padding: 24px; }
         .detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-        .detail-stat { background: #f8f9fa; padding: 12px; border-radius: 8px; text-align: center; }
-        .detail-stat .val { font-size: 22px; font-weight: bold; color: #2c3e50; }
-        .detail-stat .lbl { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
+        .detail-stat { background: var(--bg-card); border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-md); text-align: center; }
+        .detail-stat .val { font-size: 22px; font-weight: bold; color: var(--text-heading); font-family: var(--font-mono); }
+        .detail-stat .lbl { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
         .mini-chart { width: 100%; height: 300px; margin-top: 16px; }
         .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px;
-            margin-top: 10px; padding: 8px 12px; background: #f8f9fa; border-radius: 8px;
-            font-size: 11px; color: #555; }
+            margin-top: 10px; padding: 8px 12px; background: var(--bg-card); border-radius: var(--radius-md);
+            font-size: 11px; color: var(--text-muted); border: 1px solid var(--border-color); }
         .chart-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         .chart-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
         .chart-legend-line { width: 16px; height: 2px; flex-shrink: 0; border-radius: 1px; }
         .chart-legend-dash { width: 16px; height: 0; flex-shrink: 0; border-top: 2px dashed; }
-        .loading-spinner { text-align: center; padding: 40px; color: #7f8c8d; }
-        .error-msg { background: #fee2e2; color: #dc2626; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+        .loading-spinner { text-align: center; padding: 40px; color: var(--text-muted); }
+        .error-msg { background: rgba(239,68,68,0.15); color: var(--buy); padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 16px; border: 1px solid rgba(239,68,68,0.25); }
 
-        /* Technical Indicator Interpretation */
+        /* ═══ Technical Indicator Interpretation ═══ */
         .interp-section { margin-top: 24px; }
-        .interp-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+        .interp-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px; }
         .interp-card.interp-macd { border-left: 4px solid #1f77b4; }
         .interp-card.interp-bollinger { border-left: 4px solid #2ca02c; }
         .interp-card.interp-rsi { border-left: 4px solid #ff7f0e; }
-        .interp-card h4 { font-size: 15px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
+        .interp-card h4 { font-size: 15px; font-weight: 600; color: var(--text-heading); margin: 0 0 10px 0; }
         .interp-metrics { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-        .interp-metric { background: white; padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid #e8e8e8; white-space: nowrap; }
-        .interp-desc { font-size: 14px; line-height: 1.7; color: #444; margin-bottom: 6px; }
-        .interp-desc strong { color: #2c3e50; }
-        .interp-summary { font-size: 14px; font-weight: 600; color: #2c3e50; margin: 10px 0; padding: 10px 14px; background: rgba(102,126,234,0.08); border-radius: 6px; border-left: 3px solid #667eea; }
+        .interp-metric { background: var(--bg-card-hover); padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid var(--border-color); white-space: nowrap; }
+        .interp-desc { font-size: 14px; line-height: 1.7; color: var(--text-muted); margin-bottom: 6px; }
+        .interp-desc strong { color: var(--text-primary); }
+        .interp-summary { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 10px 0; padding: 10px 14px; background: rgba(56,189,248,0.08); border-radius: var(--radius-sm); border-left: 3px solid var(--accent); }
         .interp-checklist { margin: 8px 0 4px; padding-left: 20px; }
-        .interp-checklist li { font-size: 13px; line-height: 1.6; color: #555; margin-bottom: 3px; }
+        .interp-checklist li { font-size: 13px; line-height: 1.6; color: var(--text-muted); margin-bottom: 3px; }
 
-        /* Parameter Lab */
+        /* ═══ Parameter Lab ═══ */
         .preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-        .preset-btn { background: white; border: 2px solid #e8e8e8; border-radius: 10px; padding: 14px; cursor: pointer; text-align: left; transition: all 0.2s; }
-        .preset-btn:hover { border-color: #667eea; box-shadow: 0 2px 8px rgba(102,126,234,0.15); }
-        .preset-btn.active { border-color: #667eea; border-left: 4px solid #667eea; background: rgba(102,126,234,0.04); }
-        .preset-name { font-size: 15px; font-weight: 600; color: #2c3e50; margin-bottom: 4px; }
-        .preset-params { font-size: 13px; color: #667eea; font-weight: 600; margin-bottom: 4px; }
-        .preset-desc { font-size: 12px; color: #95a5a6; line-height: 1.4; }
-        .slider-group { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .preset-btn { background: var(--bg-card); border: 2px solid var(--border-color); border-radius: var(--radius-lg); padding: 14px; cursor: pointer; text-align: left; transition: all 0.2s; }
+        .preset-btn:hover { border-color: var(--accent); box-shadow: 0 2px 8px var(--accent-glow); }
+        .preset-btn.active { border-color: var(--accent); border-left: 4px solid var(--accent); background: rgba(56,189,248,0.06); }
+        .preset-name { font-size: 15px; font-weight: 600; color: var(--text-heading); margin-bottom: 4px; }
+        .preset-params { font-size: 13px; color: var(--accent); font-weight: 600; margin-bottom: 4px; font-family: var(--font-mono); }
+        .preset-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+        .slider-group { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-sm); }
         .slider-row { margin-bottom: 20px; }
         .slider-row:last-child { margin-bottom: 0; }
-        .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; color: #2c3e50; }
-        .slider-value { background: #667eea; color: white; padding: 2px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; }
-        .slider-row input[type="range"] { width: 100%; height: 6px; -webkit-appearance: none; background: #e8e8e8; border-radius: 3px; outline: none; }
-        .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: #667eea; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(102,126,234,0.3); }
-        .slider-range { display: flex; justify-content: space-between; font-size: 11px; color: #95a5a6; margin-top: 4px; }
-        .diff-banner { padding: 12px 16px; border-radius: 8px; font-size: 14px; font-weight: 500; margin-top: 12px; }
-        .diff-banner.changed { background: #fef3c7; color: #92400e; }
-        .diff-banner.unchanged { background: #f0fdf4; color: #166534; }
-        /* 收口突破卡片 */
-        .squeeze-card { background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 14px; border-left: 4px solid #95a5a6; }
-        .squeeze-card.squeezing { border-left-color: #f59e0b; }
-        .squeeze-card.breakout-up { border-left-color: #16a34a; }
-        .squeeze-card.breakout-down { border-left-color: #dc2626; }
-        .squeeze-card h4 { font-size: 15px; font-weight: 600; color: #2c3e50; margin: 0 0 10px 0; }
+        .slider-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; color: var(--text-heading); }
+        .slider-value { background: var(--accent); color: #090d1a; padding: 2px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; font-family: var(--font-mono); }
+        .slider-row input[type="range"] { width: 100%; height: 6px; -webkit-appearance: none; background: var(--border-color); border-radius: 3px; outline: none; }
+        .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px var(--accent-glow); }
+        .slider-range { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+        .diff-banner { padding: 12px 16px; border-radius: var(--radius-md); font-size: 14px; font-weight: 500; margin-top: 12px; }
+        .diff-banner.changed { background: rgba(245,158,11,0.15); color: var(--amber); }
+        .diff-banner.unchanged { background: rgba(34,197,94,0.1); color: var(--sell); }
+
+        /* ═══ Squeeze Cards ═══ */
+        .squeeze-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px; border-left: 4px solid var(--text-dim); }
+        .squeeze-card.squeezing { border-left-color: var(--amber); }
+        .squeeze-card.breakout-up { border-left-color: var(--sell); }
+        .squeeze-card.breakout-down { border-left-color: var(--buy); }
+        .squeeze-card h4 { font-size: 15px; font-weight: 600; color: var(--text-heading); margin: 0 0 10px 0; }
         .squeeze-metrics { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-        .squeeze-metric { background: white; padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid #e8e8e8; white-space: nowrap; }
+        .squeeze-metric { background: var(--bg-card-hover); padding: 3px 10px; border-radius: 4px; font-size: 13px; border: 1px solid var(--border-color); white-space: nowrap; }
         .squeeze-badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
-        .squeeze-badge.confirmed { background: #dcfce7; color: #166534; }
-        .squeeze-badge.divergent { background: #fef2f2; color: #991b1b; }
-        .squeeze-badge.neutral { background: #f0fdf4; color: #78716c; }
-        .squeeze-badge.dir-up { background: #dcfce7; color: #166534; }
-        .squeeze-badge.dir-down { background: #fef2f2; color: #991b1b; }
-        .squeeze-timeline { margin-top: 10px; padding-left: 16px; border-left: 2px solid #e8e8e8; }
-        .squeeze-timeline-item { position: relative; padding: 6px 0 6px 18px; font-size: 13px; color: #555; }
-        .squeeze-timeline-item::before { content: ''; position: absolute; left: -22px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: #667eea; }
-        .squeeze-timeline-item.breakout-up::before { background: #16a34a; }
-        .squeeze-timeline-item.breakout-down::before { background: #dc2626; }
-        .squeeze-empty { font-size: 13px; color: #95a5a6; margin-top: 8px; }
-        .strategy-signal-bar { background: linear-gradient(135deg, rgba(102,126,234,0.08), rgba(118,75,162,0.08)); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; border-left: 4px solid #667eea; }
-        .strategy-signal-bar .signal-label { font-size: 13px; color: #667eea; font-weight: 600; }
-        .strategy-signal-bar .signal-detail { font-size: 14px; color: #2c3e50; margin-top: 4px; }
-        /* 回测实验室 */
-        .bt-section { background: white; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        .bt-section h3 { font-size: 16px; color: #2c3e50; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
-        .bt-select { width: 100%; max-width: 360px; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; background: white; }
-        .bt-select:focus { border-color: #667eea; }
-        .bt-info { font-size: 13px; color: #7f8c8d; margin-top: 8px; }
+        .squeeze-badge.confirmed { background: rgba(34,197,94,0.15); color: var(--sell); }
+        .squeeze-badge.divergent { background: rgba(239,68,68,0.12); color: var(--buy); }
+        .squeeze-badge.neutral { background: rgba(148,163,184,0.12); color: var(--text-muted); }
+        .squeeze-badge.dir-up { background: rgba(34,197,94,0.15); color: var(--sell); }
+        .squeeze-badge.dir-down { background: rgba(239,68,68,0.12); color: var(--buy); }
+        .squeeze-timeline { margin-top: 10px; padding-left: 16px; border-left: 2px solid var(--border-color); }
+        .squeeze-timeline-item { position: relative; padding: 6px 0 6px 18px; font-size: 13px; color: var(--text-muted); }
+        .squeeze-timeline-item::before { content: ''; position: absolute; left: -22px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+        .squeeze-timeline-item.breakout-up::before { background: var(--sell); }
+        .squeeze-timeline-item.breakout-down::before { background: var(--buy); }
+        .squeeze-empty { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
+
+        /* ═══ Strategy Signal Bar ═══ */
+        .strategy-signal-bar { background: rgba(56,189,248,0.06); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 16px; border-left: 4px solid var(--accent); }
+        .strategy-signal-bar .signal-label { font-size: 13px; color: var(--accent); font-weight: 600; }
+        .strategy-signal-bar .signal-detail { font-size: 14px; color: var(--text-primary); margin-top: 4px; }
+
+        /* ═══ Backtest Lab ═══ */
+        .bt-section { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+        .bt-section h3 { font-size: 16px; color: var(--text-heading); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+        .bt-select { width: 100%; max-width: 360px; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 14px; outline: none; background: var(--bg-input); color: var(--text-primary); }
+        .bt-select:focus { border-color: var(--accent); }
+        .bt-select option { background: var(--bg-card); color: var(--text-primary); }
+        .bt-info { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
         .bt-params { display: flex; flex-wrap: wrap; gap: 20px; }
-        .bt-param-card { background: #f8f9fc; border-radius: 8px; padding: 16px; flex: 1; min-width: 260px; }
-        .bt-param-card .param-name { font-weight: 600; font-size: 14px; color: #2c3e50; margin-bottom: 8px; }
+        .bt-param-card { background: var(--bg-card-hover); border-radius: var(--radius-md); padding: 16px; flex: 1; min-width: 260px; border: 1px solid var(--border-color); }
+        .bt-param-card .param-name { font-weight: 600; font-size: 14px; color: var(--text-heading); margin-bottom: 8px; }
         .bt-param-card .param-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-        .bt-param-card .param-row label { font-size: 12px; color: #7f8c8d; width: 36px; flex-shrink: 0; }
+        .bt-param-card .param-row label { font-size: 12px; color: var(--text-muted); width: 36px; flex-shrink: 0; }
         .bt-param-card input[type=range] { flex: 1; }
-        .bt-param-card .param-val { font-size: 13px; font-weight: 600; color: #667eea; min-width: 36px; text-align: right; }
-        .bt-estimate { margin-top: 12px; padding: 10px 14px; background: #f0f4ff; border-radius: 6px; font-size: 13px; color: #4a5ecb; }
-        .bt-estimate.warn { background: #fff8e6; color: #b45309; }
-        .bt-btn { background: #667eea; color: white; border: none; padding: 14px 48px; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(102,126,234,0.3); transition: all 0.2s; }
-        .bt-btn:hover { background: #5a6fd6; }
-        .bt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .bt-param-card .param-val { font-size: 13px; font-weight: 600; color: var(--accent); min-width: 36px; text-align: right; font-family: var(--font-mono); }
+        .bt-estimate { margin-top: 12px; padding: 10px 14px; background: rgba(56,189,248,0.08); border-radius: var(--radius-sm); font-size: 13px; color: var(--accent); }
+        .bt-estimate.warn { background: rgba(245,158,11,0.1); color: var(--amber); }
+        .bt-btn { background: var(--accent); color: #090d1a; border: none; padding: 14px 48px; border-radius: var(--radius-lg); font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px var(--accent-glow); transition: all 0.2s; }
+        .bt-btn:hover { background: #2caad8; box-shadow: 0 4px 20px rgba(56,189,248,0.4); }
+        .bt-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
         .bt-progress { margin-top: 16px; }
-        .bt-progress-bar { height: 6px; background: #e8e8e8; border-radius: 3px; overflow: hidden; }
-        .bt-progress-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 3px; transition: width 0.3s; }
-        .bt-progress-text { font-size: 12px; color: #7f8c8d; margin-top: 6px; text-align: center; }
+        .bt-progress-bar { height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden; }
+        .bt-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #818cf8); border-radius: 3px; transition: width 0.3s; }
+        .bt-progress-text { font-size: 12px; color: var(--text-muted); margin-top: 6px; text-align: center; }
         .bt-results { margin-top: 20px; }
         .bt-best-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
-        .bt-best-card { background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; padding: 16px; border-radius: 8px; text-align: center; }
-        .bt-best-card .card-val { font-size: 24px; font-weight: bold; }
-        .bt-best-card .card-val.green { color: #27ae60; }
-        .bt-best-card .card-val.red { color: #e74c3c; }
-        .bt-best-card .card-lbl { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-        .bt-best-card.highlight { background: linear-gradient(135deg, #1a3a2e, #0d4a2e); border: 2px solid #27ae60; }
+        .bt-best-card { background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); padding: 16px; border-radius: var(--radius-md); text-align: center; }
+        .bt-best-card .card-val { font-size: 24px; font-weight: bold; font-family: var(--font-mono); }
+        .bt-best-card .card-val.green { color: var(--sell); }
+        .bt-best-card .card-val.red { color: var(--buy); }
+        .bt-best-card .card-lbl { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .bt-best-card.highlight { border-color: var(--sell); box-shadow: 0 0 16px rgba(34,197,94,0.15); }
         .bt-heatmap { margin-bottom: 20px; }
-        .bt-heatmap canvas { display: block; max-width: 100%; border-radius: 8px; }
+        .bt-heatmap canvas { display: block; max-width: 100%; border-radius: var(--radius-md); }
         .bt-chart { margin-bottom: 20px; }
-        .bt-chart canvas { display: block; max-width: 100%; border-radius: 8px; }
+        .bt-chart canvas { display: block; max-width: 100%; border-radius: var(--radius-md); }
         .bt-trades-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .bt-trades-table th { background: #f8f9fc; padding: 8px 12px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #e8e8e8; }
-        .bt-trades-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-        .bt-trades-table .trade-buy { color: #e74c3c; }
-        .bt-trades-table .trade-sell { color: #27ae60; }
-        .bt-trades-table .profit-pos { color: #27ae60; font-weight: 600; }
-        .bt-trades-table .profit-neg { color: #e74c3c; font-weight: 600; }
-        .bt-warning { margin-top: 16px; padding: 12px 16px; background: #fff8e6; border-radius: 8px; font-size: 13px; color: #b45309; text-align: center; }
+        .bt-trades-table th { background: var(--bg-card-hover); padding: 8px 12px; text-align: left; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid var(--border-color); }
+        .bt-trades-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-light); color: var(--text-primary); }
+        .bt-trades-table .trade-buy { color: var(--buy); }
+        .bt-trades-table .trade-sell { color: var(--sell); }
+        .bt-trades-table .profit-pos { color: var(--sell); font-weight: 600; }
+        .bt-trades-table .profit-neg { color: var(--buy); font-weight: 600; }
+        .bt-warning { margin-top: 16px; padding: 12px 16px; background: rgba(245,158,11,0.08); border-radius: var(--radius-md); font-size: 13px; color: var(--amber); text-align: center; border: 1px solid rgba(245,158,11,0.15); }
+
+        /* ═══ Watchlist Table ═══ */
+        .wl-table { width: 100%; border-collapse: collapse; }
+        .wl-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border-color); color: var(--text-muted); font-size: 12px; font-weight: 600; }
+        .wl-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+        .wl-table tr:hover td { background: var(--bg-card-hover); }
+
+        /* ═══ Responsive ═══ */
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar {
+                width: 100%;
+                min-height: auto;
+                position: relative;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            .sidebar-brand { padding: 16px; }
+            .sidebar-nav { display: flex; overflow-x: auto; padding: 0; }
+            .sidebar-nav-item { padding: 10px 14px; border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; font-size: 12px; }
+            .sidebar-nav-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }
+            .sidebar-section { padding: 8px 0; }
+            .sidebar-footer { margin-top: 0; padding: 12px 16px; }
+            .sidebar-refresh-btn { margin-bottom: 8px; }
+            .main { padding: 16px; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1 id="page-title">📊 布林带策略工作台</h1>
-            <p id="header-meta">正在加载...</p>
-            <div class="strategy-select">
+    <!-- ═══ Sidebar ═══ -->
+    <div class="sidebar">
+        <div class="sidebar-brand">
+            <h2 id="page-title">📊 策略工作台</h2>
+            <div class="brand-sub">Trading Command Center</div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">策略选择</div>
+            <div class="sidebar-strategy">
                 <select id="strategy-select" onchange="onStrategyChange()">
                     <option value="">加载中...</option>
                 </select>
             </div>
-            <button class="refresh-btn" onclick="refreshData()" id="refreshBtn">🔄 刷新数据</button>
-        </header>
+        </div>
 
+        <div class="sidebar-section-label" style="padding-top:12px">导航</div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-nav-item active" data-tab="signals" onclick="switchTab('signals')">
+                <span class="nav-icon">●</span> 今日信号
+            </div>
+            <div class="sidebar-nav-item" data-tab="all" onclick="switchTab('all')">
+                <span class="nav-icon">○</span> 全部概览
+            </div>
+            <div class="sidebar-nav-item" data-tab="params" onclick="switchTab('params')">
+                <span class="nav-icon">○</span> 参数实验室
+            </div>
+            <div class="sidebar-nav-item" data-tab="backtest" onclick="switchTab('backtest')">
+                <span class="nav-icon">○</span> 回测实验室
+            </div>
+            <div class="sidebar-nav-item" data-tab="watchlist" onclick="switchTab('watchlist')">
+                <span class="nav-icon">📋</span> 个股管理
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-refresh-btn" onclick="refreshData()" id="refreshBtn">🔄 刷新数据</button>
+            <div class="sidebar-meta" id="sidebar-meta">
+                <div id="sidebar-date">--</div>
+                <div id="sidebar-time">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Main Content ═══ -->
+    <div class="main">
         <!-- 统计卡片 -->
-        <div class="stats">
+        <div class="stats-row">
             <div class="stat-card"><div class="stat-value buy" id="stat-buy">-</div><div class="stat-label">买入信号</div></div>
             <div class="stat-card"><div class="stat-value sell" id="stat-sell">-</div><div class="stat-label">卖出信号</div></div>
             <div class="stat-card"><div class="stat-value enhanced" id="stat-enhanced">-</div><div class="stat-label">增强信号 (&gt;1.5x 量)</div></div>
@@ -345,15 +580,6 @@
         <!-- Error -->
         <div id="error-banner" class="error-msg" style="display:none"></div>
 
-        <!-- Tab 切换 -->
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('signals')">今日信号</button>
-            <button class="tab" onclick="switchTab('all')">全部概览</button>
-            <button class="tab" onclick="switchTab('params')">参数实验室</button>
-            <button class="tab" onclick="switchTab('backtest')">回测实验室</button>
-            <button class="tab" onclick="switchTab('watchlist')">📋 个股管理</button>
-        </div>
-
         <!-- Tab 1: 今日信号 -->
         <div id="tab-signals" class="tab-content active">
             <div class="loading-spinner" id="signals-loading">加载中...</div>
@@ -364,7 +590,7 @@
         <div id="tab-all" class="tab-content">
             <div style="margin-bottom:16px">
                 <input type="text" id="overview-search" placeholder="搜索代码或名称..." oninput="filterOverview()"
-                    style="width:100%;max-width:360px;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;outline:none;">
+                    style="width:100%;max-width:360px;padding:10px 14px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;outline:none;background:var(--bg-input);color:var(--text-primary);">
             </div>
             <div class="loading-spinner" id="overview-loading">加载中...</div>
             <div id="overview-content"></div>
@@ -375,7 +601,7 @@
             <div class="loading-spinner" id="paramlab-loading">加载中...</div>
             <div id="paramlab-content" style="display:none">
                 <!-- A. 市场特征速览 -->
-                <h2 style="margin:20px 0 12px;color:#2c3e50;">当前市场特征速览</h2>
+                <h2 style="margin:20px 0 12px;color:var(--text-heading);">当前市场特征速览</h2>
                 <div class="stats" id="snapshot-stats">
                     <div class="stat-card"><div class="stat-value" id="snap-bandwidth">-</div><div class="stat-label">平均带宽</div></div>
                     <div class="stat-card"><div class="stat-value" id="snap-std">-</div><div class="stat-label">平均标准差</div></div>
@@ -383,11 +609,11 @@
                 </div>
 
                 <!-- B. 预设模板 -->
-                <h2 style="margin:24px 0 12px;color:#2c3e50;">参数预设</h2>
+                <h2 style="margin:24px 0 12px;color:var(--text-heading);">参数预设</h2>
                 <div class="preset-grid" id="preset-grid"></div>
 
                 <!-- C. 手动滑块 -->
-                <h2 style="margin:24px 0 12px;color:#2c3e50;">手动调节</h2>
+                <h2 style="margin:24px 0 12px;color:var(--text-heading);">手动调节</h2>
                 <div class="slider-group">
                     <div class="slider-row">
                         <div class="slider-label">
@@ -408,7 +634,7 @@
                 </div>
 
                 <!-- D. 信号对比 -->
-                <h2 style="margin:24px 0 12px;color:#2c3e50;">信号变化对比</h2>
+                <h2 style="margin:24px 0 12px;color:var(--text-heading);">信号变化对比</h2>
                 <div class="stats" id="comparison-stats">
                     <div class="stat-card"><div class="stat-value buy" id="comp-current-buy">-</div><div class="stat-label">当前买入</div></div>
                     <div class="stat-card"><div class="stat-value sell" id="comp-current-sell">-</div><div class="stat-label">当前卖出</div></div>
@@ -419,10 +645,10 @@
 
                 <!-- E. 应用按钮 -->
                 <div style="margin-top:16px;text-align:center">
-                    <button id="apply-btn" onclick="applyParams()" style="background:#667eea;color:white;border:none;padding:14px 48px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(102,126,234,0.3);transition:all 0.2s;">
+                    <button id="apply-btn" onclick="applyParams()" style="background:var(--accent);color:#090d1a;border:none;padding:14px 48px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px var(--accent-glow);transition:all 0.2s;">
                         应用参数
                     </button>
-                    <p style="margin-top:8px;font-size:13px;color:#95a5a6;">点击后重新计算全量信号，其他标签页同步更新</p>
+                    <p style="margin-top:8px;font-size:13px;color:var(--text-muted);">点击后重新计算全量信号，其他标签页同步更新</p>
                 </div>
             </div>
         </div>
@@ -489,7 +715,7 @@
 
                 <!-- 结果展示 -->
                 <div class="bt-results" id="bt-results" style="display:none">
-                    <h3 style="margin-bottom:16px;color:#2c3e50;">优化结果</h3>
+                    <h3 style="margin-bottom:16px;color:var(--text-heading);">优化结果</h3>
                     <div class="bt-best-cards" id="bt-best-cards"></div>
                     <div class="bt-chart" id="bt-convergence" style="display:none"><canvas id="bt-convergence-canvas"></canvas></div>
                     <div class="bt-heatmap" id="bt-heatmap"><canvas id="bt-heatmap-canvas"></canvas></div>
@@ -508,11 +734,11 @@
             <div class="loading-spinner" id="wl-loading">加载中...</div>
             <div id="wl-content" style="display:none">
                 <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-                    <select id="wl-group-filter" onchange="renderWatchlistTable()" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px">
+                    <select id="wl-group-filter" onchange="renderWatchlistTable()" style="padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;font-size:14px;background:var(--bg-input);color:var(--text-primary)">
                         <option value="">全部分组</option>
                     </select>
-                    <input id="wl-symbol-input" type="text" placeholder="股票代码 (如 600900)" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px;width:180px" onkeydown="if(event.key==='Enter')addStock()">
-                    <select id="wl-group-select" style="padding:6px 10px;border:1px solid #dcdde1;border-radius:6px;font-size:14px">
+                    <input id="wl-symbol-input" type="text" placeholder="股票代码 (如 600900)" style="padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;font-size:14px;width:180px;background:var(--bg-input);color:var(--text-primary)" onkeydown="if(event.key==='Enter')addStock()">
+                    <select id="wl-group-select" style="padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;font-size:14px;background:var(--bg-input);color:var(--text-primary)">
                         <option value="">选择分组</option>
                         <option value="A股">A股</option>
                         <option value="港股">港股</option>
@@ -520,26 +746,26 @@
                         <option value="可转债">可转债</option>
                         <option value="其他">其他</option>
                     </select>
-                    <button onclick="addStock()" style="padding:6px 16px;background:#3498db;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer">➕ 添加</button>
-                    <span id="wl-status" style="font-size:13px;color:#95a5a6"></span>
+                    <button onclick="addStock()" style="padding:6px 16px;background:var(--accent);color:#090d1a;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600">➕ 添加</button>
+                    <span id="wl-status" style="font-size:13px;color:var(--text-muted)"></span>
                 </div>
                 <div style="overflow-x:auto">
                     <table class="wl-table" id="wl-table" style="width:100%;border-collapse:collapse">
                         <thead><tr>
-                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">代码</th>
-                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">名称</th>
-                            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #dcdde1">分组</th>
-                            <th style="text-align:center;padding:8px 12px;border-bottom:2px solid #dcdde1;width:80px">操作</th>
+                            <th>代码</th>
+                            <th>名称</th>
+                            <th>分组</th>
+                            <th style="text-align:center;width:80px">操作</th>
                         </tr></thead>
                         <tbody id="wl-tbody"></tbody>
                     </table>
                 </div>
-                <div id="wl-summary" style="margin-top:12px;font-size:13px;color:#7f8c8d"></div>
+                <div id="wl-summary" style="margin-top:12px;font-size:13px;color:var(--text-dim)"></div>
             </div>
         </div>
 
         <footer><p>💡 提示：增强信号 = 有信号 + 成交量放大 > 1.5倍前20日均量</p></footer>
-    </div>
+    </div><!-- .main -->
 
     <!-- 股票详情 Modal -->
     <div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
@@ -623,15 +849,15 @@
 
         const envLabels = { 'range': '震荡格局', 'trend': '趋势市场', 'squeeze': '蓄势突破' };
         const envColors = { 'range': '#3b82f6', 'trend': '#16a34a', 'squeeze': '#e67e22' };
-        const envBgColors = { 'range': '#eff6ff', 'trend': '#dcfce7', 'squeeze': '#fef3c7' };
+        const envBgColors = { 'range': 'rgba(59,130,246,0.12)', 'trend': 'rgba(22,163,74,0.12)', 'squeeze': 'rgba(230,126,34,0.12)' };
 
         const gradeLabels = { 'S': 'S级-高确信', 'A': 'A级-标准', 'B': 'B级-试探', 'C': 'C级-仅观察' };
         const gradeColors = { 'S': '#7c3aed', 'A': '#16a34a', 'B': '#e67e22', 'C': '#94a3b8' };
-        const gradeBgColors = { 'S': '#f3e8ff', 'A': '#dcfce7', 'B': '#fef3c7', 'C': '#f1f5f9' };
+        const gradeBgColors = { 'S': 'rgba(124,58,237,0.12)', 'A': 'rgba(22,163,74,0.12)', 'B': 'rgba(230,126,34,0.12)', 'C': 'rgba(148,163,184,0.1)' };
 
         const posColors = {
             '上轨附近': '#27ae60', '下轨附近': '#e74c3c',
-            '中上区间': '#3498db', '中下区间': '#95a5a6', '-': '#ccc'
+            '中上区间': '#3498db', '中下区间': 'var(--text-muted)', '-': 'var(--text-muted)'
         };
 
         async function fetchJSON(url) {
@@ -672,7 +898,7 @@
                 const result = await resp.json();
                 if (result.success) {
                     currentStrategyId = newId;
-                    document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === newId) || {}).name + '策略工作台';
+                    document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === newId) || {}).name;
                     updateStatLabels();
                     renderStrategyPanel();
                     pollTimer = setInterval(autoRefresh, 3000);
@@ -685,7 +911,7 @@
             document.querySelector('.stat-card:nth-child(1) .stat-label').textContent = labels.buy;
             document.querySelector('.stat-card:nth-child(2) .stat-label').textContent = labels.sell;
             document.querySelector('.stat-card:nth-child(3) .stat-label').textContent = labels.enhanced;
-            document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === currentStrategyId) || {name:'布林带'}).name + '策略工作台';
+            document.getElementById('page-title').textContent = '📊 ' + (strategiesList.find(s => s.id === currentStrategyId) || {name:'布林带'}).name;
         }
 
         let panelExpanded = false;
@@ -740,7 +966,7 @@
                 renderOverview(stkRes);
 
                 if (sigRes.meta.loading) {
-                    document.getElementById('header-meta').textContent += ' | 🔄 正在刷新最新数据...';
+                    document.getElementById('sidebar-time').textContent += ' 🔄';
                     pollTimer = setInterval(autoRefresh, 3000);
                 }
             } catch (e) {
@@ -779,9 +1005,11 @@
             document.getElementById('stat-enhanced').textContent = meta.enhanced_count;
             document.getElementById('stat-total').textContent = meta.total_stocks;
             const time = meta.scan_time ? meta.scan_time.replace('T', ' ').substring(0, 19) : '-';
-            document.getElementById('header-meta').textContent =
-                `自选股: ${meta.total_stocks} 只 | 扫描时间: ${time}` +
-                (meta.loading ? ' | 加载中...' : '');
+            var dateStr = time.substring(0, 10);
+            var timeStr = time.substring(11, 19);
+            document.getElementById('sidebar-date').textContent = dateStr;
+            document.getElementById('sidebar-time').textContent = timeStr + (meta.loading ? ' 加载中...' : '');
+            document.getElementById('sidebar-meta').title = '自选股: ' + meta.total_stocks + ' 只 | 扫描时间: ' + time;
         }
 
         function renderSignals(data) {
@@ -901,11 +1129,11 @@
                     var gd = s.signal_grade || 'NONE';
                     var baseGd = gd.split('_')[0];
                     var gc = gradeColors[baseGd] || '#94a3b8';
-                    var bg = gradeBgColors[baseGd] || '#f1f5f9';
+                    var bg = gradeBgColors[baseGd] || 'rgba(148,163,184,0.1)';
                     var gl = gradeLabels[baseGd] || gd;
                     var isCObserve = baseGd === 'C' || gd.includes('_adx_filtered');
                     var adxStr = s.adx != null ? s.adx.toFixed(1) : '-';
-                    var adxClr = s.adx != null && s.adx >= 25 ? '#16a34a' : s.adx != null && s.adx >= 20 ? '#e67e22' : '#999';
+                    var adxClr = s.adx != null && s.adx >= 25 ? '#16a34a' : s.adx != null && s.adx >= 20 ? '#e67e22' : 'var(--text-dim)';
                     var vrStr = s.volume_ratio ? s.volume_ratio.toFixed(1) + 'x' : '-';
                     var gradeStyle = isCObserve ? 'opacity:0.55' : '';
                     rowHtml += '<td><span style="background:' + bg + ';color:' + gc + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + gradeStyle + '">' + gl + '</span></td>' +
@@ -915,15 +1143,15 @@
                     var gd = s.signal_grade || 'NONE';
                     var baseGd = gd.split('_')[0];
                     var gc = gradeColors[baseGd] || '#94a3b8';
-                    var bg = gradeBgColors[baseGd] || '#f1f5f9';
+                    var bg = gradeBgColors[baseGd] || 'rgba(148,163,184,0.1)';
                     var gl = gradeLabels[baseGd] || gd;
                     var isCObserve = baseGd === 'C' || gd.includes('_weekly_against');
                     var envKey = s.environment || 'unknown';
                     var envName = envLabels[envKey] || envKey;
                     var envClr = envColors[envKey] || '#94a3b8';
-                    var envBg = envBgColors[envKey] || '#f1f5f9';
+                    var envBg = envBgColors[envKey] || 'rgba(148,163,184,0.1)';
                     var kdjJ = s.kdj_j != null ? s.kdj_j.toFixed(1) : '-';
-                    var kdjJColor = s.kdj_j != null ? (s.kdj_j > 100 ? '#dc2626' : s.kdj_j < 0 ? '#16a34a' : '#333') : '#999';
+                    var kdjJColor = s.kdj_j != null ? (s.kdj_j > 100 ? '#dc2626' : s.kdj_j < 0 ? '#16a34a' : 'var(--text-primary)') : 'var(--text-dim)';
                     var atrStr = s.atr != null ? s.atr.toFixed(2) : '-';
                     var gradeStyle = isCObserve ? 'opacity:0.55' : '';
                     rowHtml += '<td><span style="background:' + bg + ';color:' + gc + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;' + gradeStyle + '">' + gl + '</span></td>' +
@@ -934,20 +1162,20 @@
                     var ef = s.ema_fast ? s.ema_fast.toFixed(2) : '-';
                     var es = s.ema_slow ? s.ema_slow.toFixed(2) : '-';
                     var trend = s.trend || '-';
-                    var trendColor = trend.includes('多头') ? '#16a34a' : trend.includes('空头') ? '#dc2626' : '#333';
+                    var trendColor = trend.includes('多头') ? '#16a34a' : trend.includes('空头') ? '#dc2626' : 'var(--text-primary)';
                     rowHtml += '<td>¥' + ef + '</td><td>¥' + es + '</td><td style="color:' + trendColor + ';font-weight:600">' + trend + '</td>';
                 } else if (isVolumeAnalysis) {
                     var vr = s.volume_ratio ? s.volume_ratio.toFixed(1) + 'x' : '-';
-                    var vrColor = s.volume_ratio >= 2.0 ? '#dc2626' : s.volume_ratio >= 1.5 ? '#e67e22' : '#333';
+                    var vrColor = s.volume_ratio >= 2.0 ? '#dc2626' : s.volume_ratio >= 1.5 ? '#e67e22' : 'var(--text-primary)';
                     var cm = s.conditions_met || 0;
-                    var cmColor = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : '#999';
+                    var cmColor = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : 'var(--text-dim)';
                     var pl = s.pattern_label || '-';
-                    var plColor = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : '#333';
+                    var plColor = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : 'var(--text-primary)';
                     rowHtml += '<td style="color:' + vrColor + ';font-weight:600">' + vr + '</td>' +
                         '<td style="color:' + cmColor + ';font-weight:600">' + cm + '/5</td>' +
                         '<td style="color:' + plColor + ';font-weight:600">' + pl + '</td>';
                 } else {
-                    const color = posColors[s.position] || '#ccc';
+                    const color = posColors[s.position] || 'var(--text-muted)';
                     rowHtml += '<td>¥' + s.boll_mid.toFixed(2) + '</td><td>¥' + s.boll_up.toFixed(2) + '</td><td>¥' + s.boll_down.toFixed(2) + '</td><td style="color:' + color + '">📌 ' + s.position + '</td>';
                 }
                 rowHtml += '<td>' + signalBadge + '</td></tr>';
@@ -1010,7 +1238,7 @@
                 } else {
                     sigDesc = '上轨 ¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + ' / 下轨 ¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-');
                 }
-                var sigColor = l.buy_signal ? '#16a34a' : l.sell_signal ? '#dc2626' : '#95a5a6';
+                var sigColor = l.buy_signal ? '#16a34a' : l.sell_signal ? '#dc2626' : 'var(--text-muted)';
                 var html = '<div class="strategy-signal-bar">' +
                     '<span class="signal-label">当前策略: ' + strategyName + '</span>' +
                     ' <span style="color:' + sigColor + ';font-weight:600">| 最新信号: ' + sigLabel + '</span>' +
@@ -1032,11 +1260,11 @@
                         '<div class="detail-stat"><div class="val" style="color:' + trendClr + '">' + trendTxt + '</div><div class="lbl">趋势方向</div></div>';
                 } else if (isVolumeAnalysis) {
                     var vr = l.volume_ratio ? l.volume_ratio.toFixed(1) + 'x' : '-';
-                    var vrClr = l.volume_ratio >= 2.0 ? '#dc2626' : l.volume_ratio >= 1.5 ? '#e67e22' : '#333';
+                    var vrClr = l.volume_ratio >= 2.0 ? '#dc2626' : l.volume_ratio >= 1.5 ? '#e67e22' : 'var(--text-primary)';
                     var cm = data.conditions_met || 0;
-                    var cmClr = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : '#999';
+                    var cmClr = cm >= 3 ? '#16a34a' : cm >= 2 ? '#e67e22' : 'var(--text-dim)';
                     var pl = data.pattern_label || 'N/A';
-                    var plClr = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : '#333';
+                    var plClr = pl.includes('吸筹') ? '#16a34a' : pl.includes('派发') ? '#dc2626' : 'var(--text-primary)';
                     html += '<div class="detail-stat"><div class="val" style="color:' + vrClr + '">' + vr + '</div><div class="lbl">量比等级</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + cmClr + '">' + cm + '/5</div><div class="lbl">共振条件数</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + plClr + '">' + pl + '</div><div class="lbl">当前形态</div></div>';
@@ -1046,9 +1274,9 @@
                     var gcStat = gradeColors[baseGdStat] || '#94a3b8';
                     var glStat = gradeLabels[baseGdStat] || gdStat;
                     var adxDisp = l.adx != null ? l.adx.toFixed(1) : '-';
-                    var adxClrStat = l.adx != null && l.adx >= 25 ? '#16a34a' : l.adx != null && l.adx >= 20 ? '#e67e22' : '#999';
+                    var adxClrStat = l.adx != null && l.adx >= 25 ? '#16a34a' : l.adx != null && l.adx >= 20 ? '#e67e22' : 'var(--text-dim)';
                     var ma50Dir = l.ma50_direction === 1 ? '向上' : l.ma50_direction === -1 ? '向下' : (l.ma50_direction || '-');
-                    var ma50Clr = ma50Dir === '向上' ? '#16a34a' : ma50Dir === '向下' ? '#dc2626' : '#999';
+                    var ma50Clr = ma50Dir === '向上' ? '#16a34a' : ma50Dir === '向下' ? '#dc2626' : 'var(--text-dim)';
                     html += '<div class="detail-stat"><div class="val" style="color:' + gcStat + ';font-weight:700">' + glStat + '</div><div class="lbl">信号等级</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + adxClrStat + '">' + adxDisp + '</div><div class="lbl">ADX</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + ma50Clr + '">' + ma50Dir + '</div><div class="lbl">MA50方向</div></div>';
@@ -1061,7 +1289,7 @@
                     var envName = l.env_label || (envLabels[envKey] || envKey);
                     var envClr = envColors[envKey] || '#94a3b8';
                     var kdjJVal = l.kdj_j != null ? l.kdj_j.toFixed(1) : '-';
-                    var kdjJColor = l.kdj_j != null ? (l.kdj_j > 100 ? '#dc2626' : l.kdj_j < 0 ? '#16a34a' : '#333') : '#999';
+                    var kdjJColor = l.kdj_j != null ? (l.kdj_j > 100 ? '#dc2626' : l.kdj_j < 0 ? '#16a34a' : 'var(--text-primary)') : 'var(--text-dim)';
                     var atrVal = l.atr != null ? l.atr.toFixed(2) : '-';
                     html += '<div class="detail-stat"><div class="val" style="color:' + gcStat + ';font-weight:700">' + glStat + '</div><div class="lbl">信号等级</div></div>' +
                         '<div class="detail-stat"><div class="val" style="color:' + envClr + ';font-weight:600">' + envName + '</div><div class="lbl">市场环境</div></div>' +
@@ -1071,7 +1299,7 @@
                     html += '<div class="detail-stat"><div class="val">¥' + (l.boll_up ? l.boll_up.toFixed(2) : '-') + '</div><div class="lbl">布林上轨</div></div>' +
                         '<div class="detail-stat"><div class="val">¥' + (l.boll_mid ? l.boll_mid.toFixed(2) : '-') + '</div><div class="lbl">布林中轨</div></div>' +
                         '<div class="detail-stat"><div class="val">¥' + (l.boll_down ? l.boll_down.toFixed(2) : '-') + '</div><div class="lbl">布林下轨</div></div>' +
-                        '<div class="detail-stat"><div class="val" style="color:' + (posColors[pos] || '#333') + '">' + pos + '</div><div class="lbl">当前位置</div></div>';
+                        '<div class="detail-stat"><div class="val" style="color:' + (posColors[pos] || 'var(--text-primary)') + '">' + pos + '</div><div class="lbl">当前位置</div></div>';
                 }
                 if (l.volume_ratio) {
                     html += '<div class="detail-stat"><div class="val">' + l.volume_ratio.toFixed(1) + 'x</div><div class="lbl">量比</div></div>';
@@ -1082,7 +1310,7 @@
                     var prevObv = histArr[histArr.length - 2].obv;
                     if (lastObv != null && prevObv != null) {
                         var obvDir = lastObv > prevObv ? '↗' : lastObv < prevObv ? '↘' : '→';
-                        var obvClr = lastObv > prevObv ? '#16a34a' : lastObv < prevObv ? '#dc2626' : '#999';
+                        var obvClr = lastObv > prevObv ? '#16a34a' : lastObv < prevObv ? '#dc2626' : 'var(--text-dim)';
                         var obvDisp = lastObv > 1000000 ? (lastObv / 1000000).toFixed(1) + 'M' : lastObv > 1000 ? (lastObv / 1000).toFixed(0) + 'K' : lastObv.toFixed(0);
                         html += '<div class="detail-stat"><div class="val" style="color:' + obvClr + '">' + obvDir + ' ' + obvDisp + '</div><div class="lbl">OBV趋势</div></div>';
                     }
@@ -1090,24 +1318,24 @@
                 html += '</div>';
 
                 // MACD + RSI 指标卡片 + 解读
-                let rsiColor = '#333', rsiLabel = '', rsiTip = '';
+                let rsiColor = 'var(--text-primary)', rsiLabel = '', rsiTip = '';
                 if (l.rsi != null) {
                     if (l.rsi >= 70) { rsiColor = '#dc2626'; rsiLabel = '超买 ⚠️'; rsiTip = 'RSI≥70：超买区域，短期可能回调，不宜追高'; }
                     else if (l.rsi <= 30) { rsiColor = '#16a34a'; rsiLabel = '超卖 ⚡'; rsiTip = 'RSI≤30：超卖区域，短期可能反弹，关注买入机会'; }
                     else if (l.rsi >= 50) { rsiColor = '#e74c3c'; rsiLabel = '偏强'; rsiTip = '50<RSI<70：多方占优，趋势偏强'; }
                     else { rsiColor = '#27ae60'; rsiLabel = '偏弱'; rsiTip = '30<RSI<50：空方占优，趋势偏弱'; }
                 }
-                let macdTrendLabel = '', macdTrendColor = '#333', macdTrendTip = '';
+                let macdTrendLabel = '', macdTrendColor = 'var(--text-primary)', macdTrendTip = '';
                 if (l.macd != null && l.macd_signal != null) {
                     if (l.macd > l.macd_signal) { macdTrendLabel = '金叉 ↗'; macdTrendColor = '#16a34a'; macdTrendTip = 'MACD上穿信号线：看涨信号，短期趋势向上'; }
                     else { macdTrendLabel = '死叉 ↘'; macdTrendColor = '#dc2626'; macdTrendTip = 'MACD下穿信号线：看跌信号，短期趋势向下'; }
                 }
-                let barColor = '#333', barLabel = '', barTip = '';
+                let barColor = 'var(--text-primary)', barLabel = '', barTip = '';
                 if (l.macd_histogram != null) {
                     if (l.macd_histogram > 0) { barColor = '#dc2626'; barLabel = '多方'; barTip = 'MACD柱>0：多方主导，红柱越长动能越强'; }
                     else { barColor = '#16a34a'; barLabel = '空方'; barTip = 'MACD柱<0：空方主导，绿柱越长空方越强'; }
                 }
-                html += '<h3 style="margin:16px 0 8px;color:#2c3e50;">📊 技术指标</h3>' +
+                html += '<h3 style="margin:16px 0 8px;color:var(--text-heading);">📊 技术指标</h3>' +
                     '<div class="detail-stats">' +
                     '<div class="detail-stat" title="' + macdTrendTip + '"><div class="val" style="font-size:16px">' + (l.macd != null ? l.macd.toFixed(3) : '-') + '</div><div class="lbl">MACD <span style="color:' + macdTrendColor + ';font-weight:600">' + macdTrendLabel + '</span></div></div>' +
                     '<div class="detail-stat" title="' + macdTrendTip + '"><div class="val" style="font-size:16px">' + (l.macd_signal != null ? l.macd_signal.toFixed(3) : '-') + '</div><div class="lbl">信号线</div></div>' +
@@ -1219,7 +1447,7 @@
             }
 
             // 网格
-            ctx.strokeStyle = '#ecf0f1';
+            ctx.strokeStyle = '#1e2a45';
             ctx.lineWidth = 0.5;
             for (let i = 0; i <= 4; i++) {
                 const y = pad.top + (priceH / 4) * i;
@@ -1227,7 +1455,7 @@
                 ctx.moveTo(pad.left, y);
                 ctx.lineTo(w - pad.right, y);
                 ctx.stroke();
-                ctx.fillStyle = '#95a5a6';
+                ctx.fillStyle = '#94a3b8';
                 ctx.font = '10px sans-serif';
                 ctx.textAlign = 'right';
                 const val = maxVal - (range / 4) * i;
@@ -1388,7 +1616,7 @@
                 const obvNonNull = obvVals.filter(function(v) { return v !== null; });
                 if (obvNonNull.length > 1) {
                     // 分隔线
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, separatorY);
@@ -1428,7 +1656,7 @@
                     ctx.fill();
 
                     // OBV Y轴标签
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText(obvMax.toFixed(0), pad.left - 6, lowerTop + 12);
@@ -1441,7 +1669,7 @@
                 const macdVals = history.map(d => d.macd_histogram != null ? d.macd_histogram : null).filter(v => v !== null);
                 const sigVals = history.map(d => d.macd_signal != null ? d.macd_signal : null).filter(v => v !== null);
                 if (macdVals.length > 0) {
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, separatorY);
@@ -1455,7 +1683,7 @@
                     const barW = Math.max(1, pw / history.length * 0.6);
                     const zeroY = macdY(0);
 
-                    ctx.strokeStyle = '#999';
+                    ctx.strokeStyle = 'var(--text-dim)';
                     ctx.lineWidth = 0.5;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, zeroY);
@@ -1498,7 +1726,7 @@
                     ctx.stroke();
                     ctx.setLineDash([]);
 
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
@@ -1511,7 +1739,7 @@
                 const rsiH = rsiBot - rsiTop;
                 const rsiNonNull = rsis.filter(v => v !== null);
                 if (rsiNonNull.length > 1) {
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, rsiSeparatorY);
@@ -1550,7 +1778,7 @@
                     ctx.fillText('30', w - pad.right + 4, rsiY(30) + 4);
 
                     // 50 中线
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 0.5;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, rsiY(50));
@@ -1584,7 +1812,7 @@
                     ctx.fill();
 
                     // RSI Y轴
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText('100', pad.left - 6, rsiTop + 10);
@@ -1597,7 +1825,7 @@
                 const kdjH = kdjBot - kdjTop;
                 const kdjNonnull = kdjKs.filter(v => v !== null);
                 if (kdjNonnull.length > 1) {
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, separatorY);
@@ -1674,7 +1902,7 @@
                     ctx.setLineDash([]);
 
                     // KDJ Y轴
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText('100', pad.left - 6, kdjTop + 10);
@@ -1687,7 +1915,7 @@
                 const atrH = atrBot - atrTop;
                 const atrNonnull = atrs.filter(v => v !== null);
                 if (atrNonnull.length > 1) {
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, rsiSeparatorY);
@@ -1740,7 +1968,7 @@
                     }
 
                     // ATR Y轴
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText(atrMax.toFixed(2), pad.left - 6, atrTop + 10);
@@ -1754,7 +1982,7 @@
                 const macdValsOrig = history.map(d => d.macd_histogram != null ? d.macd_histogram : null).filter(v => v !== null);
                 const sigValsOrig = history.map(d => d.macd_signal != null ? d.macd_signal : null).filter(v => v !== null);
                 if (macdValsOrig.length > 0) {
-                    ctx.strokeStyle = '#ccc';
+                    ctx.strokeStyle = 'var(--text-muted)';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, separatorY);
@@ -1768,7 +1996,7 @@
                     const barW = Math.max(1, pw / history.length * 0.6);
                     const zeroY = _macdY(0);
 
-                    ctx.strokeStyle = '#999';
+                    ctx.strokeStyle = 'var(--text-dim)';
                     ctx.lineWidth = 0.5;
                     ctx.beginPath();
                     ctx.moveTo(pad.left, zeroY);
@@ -1796,7 +2024,7 @@
                     }
                     ctx.stroke();
 
-                    ctx.fillStyle = '#95a5a6';
+                    ctx.fillStyle = '#94a3b8';
                     ctx.font = '10px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.fillText(macdMax.toFixed(2), pad.left - 6, macdTop + 12);
@@ -1805,7 +2033,7 @@
             }
 
             // x 轴日期标签
-            ctx.fillStyle = '#95a5a6';
+            ctx.fillStyle = '#94a3b8';
             ctx.font = '10px sans-serif';
             ctx.textAlign = 'center';
             const labelCount = Math.min(6, history.length);
@@ -1841,7 +2069,7 @@
                     ctx.stroke();
 
                     // 数据点圆点
-                    ctx.fillStyle = '#667eea';
+                    ctx.fillStyle = '#38bdf8';
                     ctx.beginPath();
                     ctx.arc(cx, cy, 5, 0, Math.PI * 2);
                     ctx.fill();
@@ -1989,7 +2217,7 @@
 
         function renderInterpretation(interp, isDualMA, isVolumeAnalysis, dualMAInterp, volumeInterp, tripleConfirmInterp, isTripleConfirm, kdjBbAtrInterp, isKdjBbAtr, volumeLightInterp) {
             if (!interp) return '';
-            var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:#2c3e50;">技术指标深度解读</h3>';
+            var html = '<div class="interp-section"><h3 style="margin:20px 0 12px;color:var(--text-heading);">技术指标深度解读</h3>';
 
             // MACD card
             if (interp.macd && interp.macd.dif != null) {
@@ -2018,7 +2246,7 @@
             // Bollinger card (only for bollinger strategy)
             if (!isDualMA && !isVolumeAnalysis && interp.bollinger && interp.bollinger.position_label && interp.bollinger.position_label !== '数据不足' && interp.bollinger.position_label !== '数据异常') {
                 var bpos = interp.bollinger.position_label;
-                var posColor = bpos === '上轨附近' ? '#27ae60' : bpos === '下轨附近' ? '#e74c3c' : bpos === '中上区间' ? '#3498db' : '#95a5a6';
+                var posColor = bpos === '上轨附近' ? '#27ae60' : bpos === '下轨附近' ? '#e74c3c' : bpos === '中上区间' ? '#3498db' : 'var(--text-muted)';
                 html += '<div class="interp-card interp-bollinger">';
                 html += '<h4>布林带解读</h4>';
                 html += '<div class="interp-metrics">' +
@@ -2060,7 +2288,7 @@
 
             // 成交量轻量解读（通用层，所有策略生效）
             if (volumeLightInterp && !volumeLightInterp.error) {
-                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">成交量分析</h3>';
+                html += '<h3 style="margin:20px 0 12px;color:var(--text-heading);">成交量分析</h3>';
                 html += _renderVolCard('量价关系', 'interp-macd', volumeLightInterp.price_volume, {
                     metrics: '<span class="interp-metric" style="font-weight:600">' + (volumeLightInterp.price_volume.status_label || '-') + '</span>' +
                         '<span class="interp-metric"><strong>量比:</strong> ' + (volumeLightInterp.price_volume.volume_ratio != null ? volumeLightInterp.price_volume.volume_ratio.toFixed(1) + 'x' : '-') + '</span>' +
@@ -2083,12 +2311,12 @@
 
             // Dual MA interpretation cards
             if (isDualMA && dualMAInterp && !dualMAInterp.error) {
-                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">双均线策略分析</h3>';
+                html += '<h3 style="margin:20px 0 12px;color:var(--text-heading);">双均线策略分析</h3>';
 
                 // Cross signal card
                 var cs = dualMAInterp.cross_signal;
                 if (cs && cs.status_label) {
-                    var csColor = cs.status === 'golden_cross' ? '#16a34a' : cs.status === 'death_cross' ? '#dc2626' : '#95a5a6';
+                    var csColor = cs.status === 'golden_cross' ? '#16a34a' : cs.status === 'death_cross' ? '#dc2626' : 'var(--text-muted)';
                     html += '<div class="interp-card interp-macd">';
                     html += '<h4>交叉信号</h4>';
                     html += '<div class="interp-metrics">' +
@@ -2110,7 +2338,7 @@
                 // Trend card
                 var td = dualMAInterp.trend;
                 if (td && td.alignment_label) {
-                    var tdColor = td.alignment === 'bullish' ? '#16a34a' : td.alignment === 'bearish' ? '#dc2626' : '#95a5a6';
+                    var tdColor = td.alignment === 'bullish' ? '#16a34a' : td.alignment === 'bearish' ? '#dc2626' : 'var(--text-muted)';
                     html += '<div class="interp-card interp-bollinger">';
                     html += '<h4>趋势判定</h4>';
                     html += '<div class="interp-metrics">' +
@@ -2178,7 +2406,7 @@
                 // Trading advice card
                 var adv = dualMAInterp.trading_advice;
                 if (adv) {
-                    var advColor = adv.entry_ready ? '#16a34a' : adv.exit_ready ? '#dc2626' : '#95a5a6';
+                    var advColor = adv.entry_ready ? '#16a34a' : adv.exit_ready ? '#dc2626' : 'var(--text-muted)';
                     html += '<div class="interp-card interp-bollinger">';
                     html += '<h4>操作建议</h4>';
                     html += '<div class="interp-metrics">' +
@@ -2198,7 +2426,7 @@
 
             // Volume Analysis interpretation cards
             if (isVolumeAnalysis && volumeInterp && !volumeInterp.error) {
-                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">成交量策略分析</h3>';
+                html += '<h3 style="margin:20px 0 12px;color:var(--text-heading);">成交量策略分析</h3>';
                 html += _renderVolCard('量价关系', 'interp-macd', volumeInterp.price_volume_relation, {
                     metrics: '<span class="interp-metric"><strong>状态:</strong> ' + (volumeInterp.price_volume_relation.status_label || '-') + '</span>' +
                         '<span class="interp-metric"><strong>量比:</strong> ' + (volumeInterp.price_volume_relation.volume_ratio || '-') + 'x</span>' +
@@ -2240,7 +2468,7 @@
 
             // KDJ+BB+ATR interpretation cards
             if (isKdjBbAtr && kdjBbAtrInterp && !kdjBbAtrInterp.error) {
-                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">KDJ+布林带+ATR 策略分析</h3>';
+                html += '<h3 style="margin:20px 0 12px;color:var(--text-heading);">KDJ+布林带+ATR 策略分析</h3>';
                 html += _renderTripleCard('environment', '🌍 市场环境', 'interp-bollinger', kdjBbAtrInterp.environment, 'env');
                 html += _renderTripleCard('signal_grade', '📊 信号分级', 'interp-macd', kdjBbAtrInterp.signal_grade, 'grade');
                 html += _renderTripleCard('kdj_dimension', '📈 KDJ 维度', 'interp-rsi', kdjBbAtrInterp.kdj_dimension, 'kdj');
@@ -2252,7 +2480,7 @@
 
             // Triple Confirm interpretation cards
             if (isTripleConfirm && tripleConfirmInterp && !tripleConfirmInterp.error) {
-                html += '<h3 style="margin:20px 0 12px;color:#2c3e50;">三重确认策略分析</h3>';
+                html += '<h3 style="margin:20px 0 12px;color:var(--text-heading);">三重确认策略分析</h3>';
                 html += _renderTripleCard('signal_grade', '📊 信号分级', 'interp-macd', tripleConfirmInterp.signal_grade, 'grade');
                 html += _renderTripleCard('macd_confirm', '📈 MACD 确认', 'interp-bollinger', tripleConfirmInterp.macd_confirm, 'macd');
                 html += _renderTripleCard('rsi_confirm', '📉 RSI 确认', 'interp-rsi', tripleConfirmInterp.rsi_confirm, 'rsi');
@@ -2276,7 +2504,7 @@
                 var gc = data.status_label || '';
                 var isFiltered = gc.includes('_adx_filtered') || gc.includes('_trend_weak');
                 var baseGd = gc.split('_')[0];
-                var color = gradeColors[baseGd] || '#333';
+                var color = gradeColors[baseGd] || 'var(--text-primary)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric" style="color:' + color + ';font-weight:700;font-size:16px">' + gc + '</span>' +
                     '<span class="interp-metric"><strong>方向:</strong> ' + (data.direction || '-') + '</span>' +
@@ -2299,7 +2527,7 @@
                 if (data.divergence_detail) card += '<div class="interp-desc" style="' + divStyle + '">' + data.divergence_detail + '</div>';
                 if (data.momentum) card += '<div class="interp-desc">' + data.momentum + '</div>';
             } else if (cardType === 'rsi') {
-                var rsiColor = data.value >= 70 ? '#dc2626' : data.value <= 30 ? '#16a34a' : '#333';
+                var rsiColor = data.value >= 70 ? '#dc2626' : data.value <= 30 ? '#16a34a' : 'var(--text-primary)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric" style="color:' + rsiColor + ';font-weight:600;font-size:16px">RSI: ' + (data.value != null ? data.value.toFixed(1) : '-') + '</span>' +
                     '<span class="interp-metric"><strong>区域:</strong> ' + (data.status_label || '-') + '</span>' +
@@ -2308,14 +2536,14 @@
                 if (data.divergence_detail) card += '<div class="interp-desc" style="color:#dc2626">' + data.divergence_detail + '</div>';
                 if (data.health) card += '<div class="interp-desc">' + data.health + '</div>';
             } else if (cardType === 'vol') {
-                var volColor = data.status === 'extreme' ? '#dc2626' : data.status === 'high' ? '#e67e22' : '#333';
+                var volColor = data.status === 'extreme' ? '#dc2626' : data.status === 'high' ? '#e67e22' : 'var(--text-primary)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric" style="color:' + volColor + ';font-weight:600">量比: ' + (data.volume_ratio != null ? data.volume_ratio.toFixed(2) + 'x' : '-') + '</span>' +
                     '<span class="interp-metric"><strong>等级:</strong> ' + (data.status_label || '-') + '</span>' +
                     '</div>';
                 if (data.pattern_detail) card += '<div class="interp-desc" style="color:#16a34a">' + data.pattern_detail + '</div>';
             } else if (cardType === 'aux') {
-                var adxClr = data.adx != null && data.adx >= 25 ? '#16a34a' : data.adx != null && data.adx >= 20 ? '#e67e22' : '#999';
+                var adxClr = data.adx != null && data.adx >= 25 ? '#16a34a' : data.adx != null && data.adx >= 20 ? '#e67e22' : 'var(--text-dim)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric" style="color:' + adxClr + ';font-weight:600">ADX: ' + (data.adx != null ? data.adx.toFixed(1) : '-') + '</span>' +
                     '<span class="interp-metric"><strong>' + (data.adx_label || '') + '</strong></span>' +
@@ -2333,7 +2561,7 @@
                     data.triggers.forEach(function(t) { card += '<div class="interp-desc" style="color:#dc2626">• ' + t + '</div>'; });
                 }
             } else if (cardType === 'advice') {
-                var adviceColor = data.entry_ready ? '#16a34a' : '#95a5a6';
+                var adviceColor = data.entry_ready ? '#16a34a' : 'var(--text-muted)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric" style="color:' + adviceColor + ';font-weight:600;font-size:16px">' +
                     (data.entry_ready ? '✅ 满足入场条件' : '○ 待确认') + '</span>' +
@@ -2355,7 +2583,7 @@
                 if (data.caution) card += '<div class="interp-desc" style="color:#e67e22">⚠ ' + data.caution + '</div>';
                 if (data.weekly_note) card += '<div class="interp-desc"><strong>周线:</strong> ' + data.weekly_note + '</div>';
             } else if (cardType === 'kdj') {
-                var jColor = (data.j != null && data.j > 100) ? '#dc2626' : (data.j != null && data.j < 0) ? '#16a34a' : '#333';
+                var jColor = (data.j != null && data.j > 100) ? '#dc2626' : (data.j != null && data.j < 0) ? '#16a34a' : 'var(--text-primary)';
                 card += '<div class="interp-metrics">' +
                     '<span class="interp-metric"><strong>K:</strong> ' + (data.k != null ? data.k.toFixed(2) : '-') + '</span>' +
                     '<span class="interp-metric"><strong>D:</strong> ' + (data.d != null ? data.d.toFixed(2) : '-') + '</span>' +
@@ -2548,7 +2776,7 @@
             var trend = snapshot.volatility_trend || '-';
             var trendEl = document.getElementById('snap-trend');
             trendEl.textContent = trend;
-            trendEl.style.color = trend.includes('上升') ? '#dc2626' : trend.includes('下降') ? '#16a34a' : '#333';
+            trendEl.style.color = trend.includes('上升') ? '#dc2626' : trend.includes('下降') ? '#16a34a' : 'var(--text-primary)';
         }
 
         function renderPresets(presets, currentParams) {
@@ -2700,9 +2928,10 @@
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.sidebar-nav-item').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
-            event.target.classList.add('active');
+            var navItem = document.querySelector('.sidebar-nav-item[data-tab="' + tabId + '"]');
+            if (navItem) navItem.classList.add('active');
             if (tabId === 'params') {
                 loadParams();
                 if (signalsData) updateComparison();
@@ -3079,7 +3308,7 @@
                 }
                 ctx.fillStyle = 'rgb(' + rCol + ',' + gCol + ',' + bCol + ')';
                 ctx.fillRect(x, y, cellW, cellH);
-                ctx.fillStyle = '#333';
+                ctx.fillStyle = 'var(--text-primary)';
                 ctx.font = '12px sans-serif';
                 ctx.textAlign = 'center';
                 const label = isRatio ? val.toFixed(4) : (val * 100).toFixed(1) + '%';
@@ -3095,7 +3324,7 @@
             yVals.forEach((v, i) => ctx.fillText(v.toFixed(2), leftPad - 8, topPad + i * cellH + cellH / 2 + 4));
 
             // 轴标题
-            ctx.fillStyle = '#333';
+            ctx.fillStyle = 'var(--text-primary)';
             ctx.font = 'bold 13px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(ps[0].label, leftPad + xVals.length * cellW / 2, topPad + yVals.length * cellH + 36);
@@ -3238,7 +3467,7 @@
                     ctx.lineTo(pad.left + pw, y);
                     ctx.stroke();
                 }
-                ctx.fillStyle = '#333';
+                ctx.fillStyle = 'var(--text-primary)';
                 ctx.textAlign = 'center';
                 ctx.fillText('价格 (¥)', pad.left + pw / 2, topPad.top - 6);
             }
@@ -3309,7 +3538,7 @@
             }
 
             // Bottom panel title
-            ctx.fillStyle = '#333';
+            ctx.fillStyle = 'var(--text-primary)';
             ctx.textAlign = 'center';
             ctx.fillText('净值曲线 (最优参数)', pad.left + pw / 2, botY0 + botPad.top - 6);
         }
@@ -3450,10 +3679,10 @@
             });
             var rows = '';
             filtered.forEach(function(s) {
-                rows += '<tr style="border-bottom:1px solid #ecf0f1">' +
+                rows += '<tr style="border-bottom:1px solid var(--border-color)">' +
                     '<td style="padding:6px 12px"><strong>' + s.symbol + '</strong></td>' +
                     '<td style="padding:6px 12px">' + s.name + '</td>' +
-                    '<td style="padding:6px 12px"><span style="background:#ecf0f1;padding:2px 8px;border-radius:4px;font-size:12px">' + (s.group || '未分组') + '</span></td>' +
+                    '<td style="padding:6px 12px"><span style="background:var(--bg-card-hover);padding:2px 8px;border-radius:4px;font-size:12px">' + (s.group || '未分组') + '</span></td>' +
                     '<td style="padding:6px 12px;text-align:center"><button onclick="refreshStock(event, \'' + s.symbol + '\')" style="padding:2px 12px;background:#3498db;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;margin-right:8px">刷新</button><button onclick="removeStock(\'' + s.symbol + '\')" style="padding:2px 12px;background:#e74c3c;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer">删除</button></td>' +
                     '</tr>';
             });
